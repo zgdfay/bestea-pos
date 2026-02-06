@@ -87,6 +87,7 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
     id: string;
     name: string;
     role: string;
+    branch: string;
   }) => {
     setPendingEmployee(employee);
     setShowPinModal(false);
@@ -129,6 +130,7 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
     id: string;
     name: string;
     role: string;
+    branch: string;
   }) => {
     setPendingEmployee(employee);
     setShowPinModal(false);

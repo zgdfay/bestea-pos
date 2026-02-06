@@ -35,7 +35,6 @@ import {
   MoreHorizontal,
   CheckCircle2,
 } from "lucide-react";
-import { initialEmployees } from "../data/mock-data";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,47 +42,134 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { useEmployee, PayrollRecord } from "@/app/context/employee-context";
+
+const MONTH_MAP: Record<string, string> = {
+  Januari: "01-2024",
+  Februari: "02-2024",
+  Maret: "03-2024",
+};
 
 export default function PayrollPage() {
-  const [employees] = useState(initialEmployees);
+  const { employees, payrollRecords, markPayrollPaid, addPayroll } =
+    useEmployee();
   const [searchQuery, setSearchQuery] = useState("");
   const [monthFilter, setMonthFilter] = useState("Januari");
 
-  // Mock calculation: let's assume everyone worked 160 hours + some bonus
-  const [payrollData, setPayrollData] = useState(() =>
-    employees.map((emp) => {
-      const hours = emp.id === "EMP001" ? 172 : 160;
-      const totalHourly = hours * emp.hourlyRate;
-      const totalSalary = emp.baseSalary + totalHourly;
-      return {
-        ...emp,
-        hours,
-        totalHourly,
-        totalSalary,
-        status: "Draft", // Initial status
-      };
-    }),
-  );
-
-  const handlePay = (id: string) => {
-    setPayrollData((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, status: "Paid" } : p)),
-    );
-    toast.success("Gaji Berhasil Dibayarkan", {
-      description: "Status payroll telah diperbarui menjadi Paid.",
-    });
-  };
-
-  const filteredPayroll = payrollData.filter((p) =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-
+  // Format currency helper
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat("id-ID", {
       style: "currency",
       currency: "IDR",
       maximumFractionDigits: 0,
     }).format(val);
+  };
+
+  // Combine Employee Data with Payroll Records
+  const payrollViewData = employees.map((emp) => {
+    const monthKey = MONTH_MAP[monthFilter] || "01-2024";
+    // Find existing payroll record for this employee and month
+    const existingRecord = payrollRecords.find(
+      (p) => p.employeeId === emp.id && p.month === monthKey,
+    );
+
+    if (existingRecord) {
+      return {
+        ...existingRecord,
+        name: existingRecord.employeeName, // Normalize name field
+        isDraft: false,
+      };
+    }
+
+    // Default Calculation (Draft)
+    const hours = 160; // Mock default
+    const totalHourly = hours * (emp.hourlyRate || 0);
+    const totalSalary = (emp.baseSalary || 0) + totalHourly;
+
+    return {
+      id: `DRAFT-${emp.id}-${monthKey}`,
+      employeeId: emp.id,
+      name: emp.name,
+      role: emp.role || "Staff",
+      month: monthKey,
+      hoursWorked: hours,
+      baseSalary: emp.baseSalary || 0,
+      hourlyRate: emp.hourlyRate || 0,
+      totalSalary,
+      totalHourly, // Add for view
+      status: "Draft" as const, // explicitly 'Draft'
+      isDraft: true,
+    };
+  });
+
+  const handlePay = (item: (typeof payrollViewData)[0]) => {
+    if (item.status === "Paid") return;
+
+    if (item.isDraft) {
+      // Create new record
+      const newRecord: PayrollRecord = {
+        id: `PAY-${Date.now()}`,
+        employeeId: item.employeeId,
+        employeeName: item.name,
+        role: item.role,
+        month: item.month,
+        hoursWorked: item.hoursWorked,
+        baseSalary: item.baseSalary,
+        hourlyRate: item.hourlyRate,
+        totalSalary: item.totalSalary,
+        status: "Paid",
+      };
+      addPayroll(newRecord);
+    } else {
+      // Update existing record
+      markPayrollPaid(item.id);
+    }
+
+    toast.success("Gaji Berhasil Dibayarkan", {
+      description: `Status payroll ${item.name} telah diperbarui menjadi Paid.`,
+    });
+  };
+
+  const filteredPayroll = payrollViewData.filter((p) =>
+    p.name.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
+  // Export handler
+  const handleExport = () => {
+    const headers = [
+      "Nama",
+      "Role",
+      "Jam Kerja",
+      "Gaji Pokok",
+      "Total Diterima",
+      "Status",
+    ];
+    const rows = filteredPayroll.map((p) => [
+      p.name,
+      p.role,
+      p.hoursWorked.toString(),
+      p.baseSalary.toString(),
+      p.totalSalary.toString(),
+      p.status,
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) => row.join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `payroll-${monthFilter}-2024.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Export berhasil", {
+      description: `${filteredPayroll.length} data payroll telah diexport.`,
+    });
   };
 
   return (
@@ -100,9 +186,10 @@ export default function PayrollPage() {
         <Button
           variant="outline"
           className="gap-2 border-green-200 text-green-700 hover:bg-green-50"
+          onClick={handleExport}
         >
           <Download className="h-4 w-4" />
-          Export PDF
+          Export CSV
         </Button>
       </div>
 
@@ -115,7 +202,7 @@ export default function PayrollPage() {
           <CardContent>
             <div className="text-2xl font-bold">
               {formatCurrency(
-                payrollData.reduce((acc, p) => acc + p.totalSalary, 0),
+                payrollViewData.reduce((acc, p) => acc + p.totalSalary, 0),
               )}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -132,10 +219,10 @@ export default function PayrollPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {payrollData.reduce((acc, p) => acc + p.hours, 0)} Jam
+              {payrollViewData.reduce((acc, p) => acc + p.hoursWorked, 0)} Jam
             </div>
             <p className="text-xs text-muted-foreground">
-              Rata-rata 164 jam/karyawan
+              Rata-rata {Math.round(160)} jam/karyawan
             </p>
           </CardContent>
         </Card>
@@ -192,7 +279,7 @@ export default function PayrollPage() {
                 <TableHead>Karyawan</TableHead>
                 <TableHead className="text-center">Jam Kerja</TableHead>
                 <TableHead>Gaji Pokok</TableHead>
-                <TableHead>Total Jam (Rp)</TableHead>
+                {/* <TableHead>Total Jam (Rp)</TableHead> */}
                 <TableHead className="text-right">Total Diterima</TableHead>
                 <TableHead className="text-center">Status</TableHead>
                 <TableHead className="text-right w-[50px]"></TableHead>
@@ -208,14 +295,14 @@ export default function PayrollPage() {
                     </div>
                   </TableCell>
                   <TableCell className="text-center font-medium">
-                    {p.hours}h
+                    {p.hoursWorked}h
                   </TableCell>
                   <TableCell className="text-sm">
                     {formatCurrency(p.baseSalary)}
                   </TableCell>
-                  <TableCell className="text-sm">
-                    {formatCurrency(p.totalHourly)}
-                  </TableCell>
+                  {/* <TableCell className="text-sm">
+                    {formatCurrency(p.totalHourly || 0)}
+                  </TableCell> */}
                   <TableCell className="text-right font-bold text-green-700">
                     {formatCurrency(p.totalSalary)}
                   </TableCell>
@@ -239,7 +326,7 @@ export default function PayrollPage() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem
-                          onClick={() => handlePay(p.id)}
+                          onClick={() => handlePay(p)}
                           disabled={p.status === "Paid"}
                           className={
                             p.status === "Paid"

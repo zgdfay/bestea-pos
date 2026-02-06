@@ -6,7 +6,15 @@ import { AuthGuard } from "@/components/auth-guard";
 
 export const metadata: Metadata = {
   title: "Dashboard - Bestea POS",
-  description: "Dashboard Bestea POS",
+  description: "Dashboard Bestea POS - Kelola bisnis minuman Anda dengan mudah",
+  keywords: ["POS", "Point of Sale", "Bestea", "Dashboard", "Minuman"],
+  authors: [{ name: "Bestea Team" }],
+  robots: "noindex, nofollow",
+  openGraph: {
+    title: "Dashboard - Bestea POS",
+    description: "Kelola bisnis minuman Anda dengan mudah",
+    type: "website",
+  },
 };
 
 export default function DashboardLayout({

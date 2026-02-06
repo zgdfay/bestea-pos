@@ -108,8 +108,6 @@ export default function CabangPage() {
       updateBranch({
         ...editingBranch,
         name: formData.name,
-        email: formData.email,
-        password: formData.password,
         address: formData.address,
         phone: formData.phone,
       });
@@ -118,8 +116,6 @@ export default function CabangPage() {
       addBranch({
         name: formData.name,
         type: "cabang",
-        email: formData.email,
-        password: formData.password,
         address: formData.address,
         phone: formData.phone,
       });
@@ -226,7 +222,7 @@ export default function CabangPage() {
               <TableRow>
                 <TableHead className="w-[300px]">Cabang</TableHead>
                 <TableHead>Alamat</TableHead>
-                <TableHead>Email Login</TableHead>
+
                 <TableHead>Telepon</TableHead>
                 <TableHead>Karyawan</TableHead>
                 <TableHead className="text-right">Aksi</TableHead>
@@ -258,15 +254,7 @@ export default function CabangPage() {
                       <span className="text-xs text-muted-foreground">-</span>
                     )}
                   </TableCell>
-                  <TableCell>
-                    {branch.email ? (
-                      <span className="text-sm text-slate-600">
-                        {branch.email}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
+
                   <TableCell>
                     {branch.phone ? (
                       <div className="flex items-center text-sm text-muted-foreground">
@@ -350,33 +338,6 @@ export default function CabangPage() {
                 }
                 placeholder="Contoh: Cabang Surabaya"
               />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email Login</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                  placeholder="cabang@bestea.com"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="text"
-                  value={formData.password}
-                  onChange={(e) =>
-                    setFormData({ ...formData, password: e.target.value })
-                  }
-                  placeholder="***"
-                />
-              </div>
             </div>
 
             <div className="grid gap-2">

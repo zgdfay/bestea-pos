@@ -112,20 +112,7 @@ export const roles = [
       "settings",
     ],
   },
-  {
-    id: "branch_admin",
-    name: "Admin Cabang",
-    description: "Mengelola operasional satu cabang tertentu.",
-    users: 3,
-    color: "bg-blue-100 text-blue-700 border-blue-200",
-    perms: [
-      "dash_view",
-      "stock_manage",
-      "trans_history",
-      "emp_manage",
-      "report_view",
-    ],
-  },
+
   {
     id: "cashier",
     name: "Kasir",

@@ -29,36 +29,7 @@ import {
 export const description = "Grafik Penjualan Interaktif";
 
 // Mock sales data for the last 3 months (in thousands IDR)
-const chartData = [
-  { date: "2026-01-01", tunai: 2500, qris: 1800 },
-  { date: "2026-01-02", tunai: 3200, qris: 2100 },
-  { date: "2026-01-03", tunai: 2800, qris: 1900 },
-  { date: "2026-01-04", tunai: 4100, qris: 2800 },
-  { date: "2026-01-05", tunai: 3800, qris: 3200 },
-  { date: "2026-01-06", tunai: 4500, qris: 3500 },
-  { date: "2026-01-07", tunai: 5200, qris: 4100 },
-  { date: "2026-01-08", tunai: 3100, qris: 2400 },
-  { date: "2026-01-09", tunai: 2900, qris: 2200 },
-  { date: "2026-01-10", tunai: 3500, qris: 2600 },
-  { date: "2026-01-11", tunai: 4200, qris: 3100 },
-  { date: "2026-01-12", tunai: 3900, qris: 2900 },
-  { date: "2026-01-13", tunai: 4800, qris: 3600 },
-  { date: "2026-01-14", tunai: 5100, qris: 4200 },
-  { date: "2026-01-15", tunai: 3400, qris: 2500 },
-  { date: "2026-01-16", tunai: 3100, qris: 2300 },
-  { date: "2026-01-17", tunai: 4600, qris: 3400 },
-  { date: "2026-01-18", tunai: 5300, qris: 4100 },
-  { date: "2026-01-19", tunai: 4900, qris: 3800 },
-  { date: "2026-01-20", tunai: 3200, qris: 2400 },
-  { date: "2026-01-21", tunai: 2800, qris: 2100 },
-  { date: "2026-01-22", tunai: 3600, qris: 2700 },
-  { date: "2026-01-23", tunai: 4100, qris: 3200 },
-  { date: "2026-01-24", tunai: 4700, qris: 3600 },
-  { date: "2026-01-25", tunai: 5500, qris: 4300 },
-  { date: "2026-01-26", tunai: 5800, qris: 4600 },
-  { date: "2026-01-27", tunai: 4200, qris: 3300 },
-  { date: "2026-01-28", tunai: 3580, qris: 2800 },
-];
+// Static data removed
 
 const chartConfig = {
   penjualan: {
@@ -80,22 +51,51 @@ const formatter = new Intl.NumberFormat("id-ID", {
   minimumFractionDigits: 0,
 });
 
+import { useTransactions } from "@/app/context/transaction-context";
+import { parseISO, format, subDays, startOfDay, isAfter } from "date-fns";
+import { id } from "date-fns/locale";
+
+// ... constants ...
+
 export function ChartAreaInteractive() {
   const [timeRange, setTimeRange] = React.useState("30d");
+  const { transactions } = useTransactions();
 
-  const filteredData = chartData.filter((item) => {
-    const date = new Date(item.date);
-    const referenceDate = new Date("2026-01-28");
-    let daysToSubtract = 30;
-    if (timeRange === "7d") {
-      daysToSubtract = 7;
-    } else if (timeRange === "14d") {
-      daysToSubtract = 14;
+  const filteredData = React.useMemo(() => {
+    // Prepare date map
+    const daysToSubtract =
+      timeRange === "30d" ? 30 : timeRange === "14d" ? 14 : 7;
+    const startDate = subDays(startOfDay(new Date()), daysToSubtract);
+
+    const dataMap = new Map<
+      string,
+      { date: string; tunai: number; qris: number }
+    >();
+
+    // Initialize all days in range with 0
+    for (let i = 0; i <= daysToSubtract; i++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + i);
+      const dateKey = format(d, "yyyy-MM-dd");
+      dataMap.set(dateKey, { date: dateKey, tunai: 0, qris: 0 });
     }
-    const startDate = new Date(referenceDate);
-    startDate.setDate(startDate.getDate() - daysToSubtract);
-    return date >= startDate;
-  });
+
+    transactions.forEach((t) => {
+      const tDate = parseISO(t.date);
+      if (isAfter(tDate, startDate)) {
+        const dateKey = format(tDate, "yyyy-MM-dd");
+        const entry = dataMap.get(dateKey);
+        if (entry && t.status === "completed") {
+          if (t.paymentMethod === "cash") entry.tunai += t.totalAmount;
+          else entry.qris += t.totalAmount;
+        }
+      }
+    });
+
+    return Array.from(dataMap.values()).sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+    );
+  }, [transactions, timeRange]);
 
   return (
     <Card className="pt-0">

@@ -16,6 +16,15 @@ import { toast } from "sonner";
 import { CalendarIcon, Download, Plus, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 import {
   Select,
@@ -49,55 +58,16 @@ import { id } from "date-fns/locale/id";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 
-import {
-  initialEmployees,
-  statusConfig as employeeStatusConfig,
-} from "../data/mock-data";
+import { useEmployee } from "@/app/context/employee-context";
+import { AttendanceRecord } from "@/app/context/employee-context";
 
-// Mock data absensi
-const initialAttendance = [
-  {
-    id: "ATT-001",
-    employeeId: "EMP001",
-    employeeName: "Faayy",
-    role: "Kasir",
-    date: new Date(),
-    checkIn: "08:15", // Terlambat jika target 08:00
-    targetCheckIn: "08:00",
-    checkOut: "-",
-    status: "late",
-    shift: "Pagi",
-    branch: "Cabang Bangil",
-  },
-  {
-    id: "ATT-002",
-    employeeId: "EMP002",
-    employeeName: "Rina Amelia",
-    role: "Kasir",
-    date: new Date(),
-    checkIn: "08:00",
-    targetCheckIn: "08:00",
-    checkOut: "-",
-    status: "present",
-    shift: "Pagi",
-    branch: "Cabang Pasuruan",
-  },
-  {
-    id: "ATT-003",
-    employeeId: "EMP003",
-    employeeName: "Budi Santoso",
-    role: "Admin Cabang",
-    date: new Date(new Date().setDate(new Date().getDate() - 1)),
-    checkIn: "07:55",
-    targetCheckIn: "08:00",
-    checkOut: "16:00",
-    status: "present",
-    shift: "Pagi",
-    branch: "Cabang Bangil",
-  },
-];
-
-const statusConfig = {
+const statusConfig: Record<string, { label: string; className: string }> = {
+  Hadir: { label: "Hadir", className: "bg-green-100 text-green-700" },
+  Terlambat: { label: "Terlambat", className: "bg-yellow-100 text-yellow-700" },
+  Alpha: { label: "Alpa", className: "bg-red-100 text-red-700" },
+  Sakit: { label: "Sakit", className: "bg-blue-100 text-blue-700" },
+  Izin: { label: "Izin/Cuti", className: "bg-purple-100 text-purple-700" },
+  // Backward compatibility
   present: { label: "Hadir", className: "bg-green-100 text-green-700" },
   late: { label: "Terlambat", className: "bg-yellow-100 text-yellow-700" },
   absent: { label: "Alpa", className: "bg-red-100 text-red-700" },
@@ -106,68 +76,165 @@ const statusConfig = {
 };
 
 export default function AdminAbsensiPage() {
-  const [attendanceRecords, setAttendanceRecords] = useState(initialAttendance);
+  const { attendanceRecords, addAttendanceManual, employees } = useEmployee();
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   // Manual Input State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState("");
-  const [leaveType, setLeaveType] = useState("sick");
+  const [selectedEmployeeName, setSelectedEmployeeName] = useState("");
+  const [leaveType, setLeaveType] = useState<
+    "sick" | "leave" | "absent" | "present" | "late"
+  >("sick");
   const [reason, setReason] = useState("");
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
 
   const handleManualInput = () => {
-    if (!selectedEmployee || !startDate) {
+    if (!selectedEmployeeName || !startDate) {
       toast.error("Harap lengkapi semua data");
       return;
     }
 
-    const newRecord = {
+    const emp = employees.find((e) => e.name === selectedEmployeeName);
+    if (!emp) {
+      toast.error("Karyawan tidak ditemukan");
+      return;
+    }
+
+    let statusMapped: "Hadir" | "Sakit" | "Izin" | "Alpha" = "Hadir";
+    if (leaveType === "sick") statusMapped = "Sakit";
+    else if (leaveType === "leave") statusMapped = "Izin";
+    else if (leaveType === "absent") statusMapped = "Alpha";
+
+    const newRecord: AttendanceRecord = {
       id: `ATT-${Date.now().toString().slice(-3)}`,
-      employeeId: selectedEmployee === "Faayy" ? "EMP001" : "EMP002",
-      employeeName: selectedEmployee,
-      role: selectedEmployee === "Budi Santoso" ? "Admin Cabang" : "Kasir",
-      date: startDate,
-      checkIn: "-",
-      targetCheckIn: "08:00",
+      employeeId: emp.id,
+      employeeName: emp.name,
+      // @ts-ignore
+      role: emp.role || "Staff",
+      date: startDate.toISOString(),
+      checkIn: statusMapped === "Hadir" ? "08:00" : "-",
       checkOut: "-",
-      status: leaveType,
+      status: statusMapped,
       shift: "Pagi",
-      branch:
-        selectedEmployee === "Budi Santoso"
-          ? "Cabang Bangil"
-          : "Cabang Pasuruan",
+      branch: emp.branch,
     };
 
-    setAttendanceRecords([newRecord, ...attendanceRecords]);
+    addAttendanceManual(newRecord);
+
     setIsModalOpen(false);
     toast.success("Absensi manual berhasil dicatat", {
-      description: `${selectedEmployee} status: ${leaveType}`,
+      description: `${selectedEmployeeName} status: ${statusMapped}`,
     });
 
     // Reset Form
-    setSelectedEmployee("");
+    setSelectedEmployeeName("");
     setLeaveType("sick");
     setReason("");
   };
 
-  const filteredData = attendanceRecords.filter((item) => {
+  // Combine Employees with Attendance for the selected Date
+  const dailyAttendanceData = employees.map((emp) => {
+    const selectedDateStr = date
+      ? format(date, "yyyy-MM-dd")
+      : format(new Date(), "yyyy-MM-dd");
+
+    // Find record for this employee on this specific date
+    const record = attendanceRecords.find(
+      (r) =>
+        r.employeeId === emp.id &&
+        format(new Date(r.date), "yyyy-MM-dd") === selectedDateStr,
+    );
+
+    if (record) {
+      return {
+        ...record,
+        isPresent: true,
+      };
+    }
+
+    // Ghost Record (Belum Hadir)
+    return {
+      id: `GHOST-${emp.id}`,
+      employeeId: emp.id,
+      employeeName: emp.name,
+      role: emp.role || "Staff",
+      branch: emp.branch,
+      date: date ? date.toISOString() : new Date().toISOString(),
+      shift: "-", // Shift info not available unless scheduled
+      checkIn: "-",
+      checkOut: "-",
+      status: "absent" as const, // Default to absent visual, but we render "Belum Hadir"
+      isPresent: false,
+    };
+  });
+
+  const filteredData = dailyAttendanceData.filter((item) => {
     const matchSearch =
       item.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.branch.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchStatus = statusFilter === "all" || item.status === statusFilter;
 
-    // Filter date simple logic (match day)
-    const matchDate = date
-      ? item.date.getDate() === date.getDate() &&
-        item.date.getMonth() === date.getMonth() &&
-        item.date.getFullYear() === date.getFullYear()
-      : true;
+    // Status filter logic
+    if (statusFilter === "all") return matchSearch;
+    if (statusFilter === "absent_system" && !item.isPresent) return matchSearch; // Special filter for "Belum Hadir"
+    if (!item.isPresent) return false; // If filtering by specific status, hide "Belum Hadir" ghosts unless logic updated
 
-    return matchSearch && matchStatus && matchDate;
+    return matchSearch && (item as any).status === statusFilter;
   });
+
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = filteredData.slice(startIndex, endIndex);
+
+  // Export handler
+  const handleExport = () => {
+    const headers = [
+      "Nama",
+      "Role",
+      "Cabang",
+      "Tanggal",
+      "Shift",
+      "Jam Masuk",
+      "Jam Pulang",
+      "Status",
+    ];
+    const rows = filteredData.map((item) => [
+      item.employeeName,
+      // @ts-ignore
+      item.role || "-",
+      item.branch,
+      format(new Date(item.date), "dd/MM/yyyy"),
+      item.shift,
+      item.checkIn,
+      item.checkOut,
+      statusConfig[item.status]?.label || item.status,
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) => row.join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute(
+      "download",
+      `absensi-${date ? format(date, "dd-MM-yyyy") : "all"}.csv`,
+    );
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Export berhasil", {
+      description: `${filteredData.length} data absensi telah diexport.`,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -197,14 +264,14 @@ export default function AdminAbsensiPage() {
                 <div className="grid gap-2">
                   <Label htmlFor="employee">Pilih Karyawan</Label>
                   <Select
-                    value={selectedEmployee}
-                    onValueChange={setSelectedEmployee}
+                    value={selectedEmployeeName}
+                    onValueChange={setSelectedEmployeeName}
                   >
                     <SelectTrigger id="employee" className="w-full">
                       <SelectValue placeholder="Pilih Karyawan" />
                     </SelectTrigger>
                     <SelectContent position="popper">
-                      {initialEmployees.map((emp) => (
+                      {employees.map((emp) => (
                         <SelectItem key={emp.id} value={emp.name}>
                           {emp.name} ({emp.role})
                         </SelectItem>
@@ -216,7 +283,10 @@ export default function AdminAbsensiPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label>Tipe Absensi</Label>
-                    <Select value={leaveType} onValueChange={setLeaveType}>
+                    <Select
+                      value={leaveType}
+                      onValueChange={(val: any) => setLeaveType(val)}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
@@ -273,7 +343,7 @@ export default function AdminAbsensiPage() {
             </DialogContent>
           </Dialog>
 
-          <Button variant="outline" className="gap-2">
+          <Button variant="outline" className="gap-2" onClick={handleExport}>
             <Download className="h-4 w-4" />
             Export
           </Button>
@@ -331,6 +401,7 @@ export default function AdminAbsensiPage() {
                 </SelectTrigger>
                 <SelectContent position="popper">
                   <SelectItem value="all">Semua Status</SelectItem>
+                  <SelectItem value="absent_system">Belum Hadir</SelectItem>
                   <SelectItem value="present">Hadir</SelectItem>
                   <SelectItem value="late">Terlambat</SelectItem>
                   <SelectItem value="sick">Sakit</SelectItem>
@@ -358,8 +429,8 @@ export default function AdminAbsensiPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredData.length > 0 ? (
-                filteredData.map((item) => (
+              {paginatedData.length > 0 ? (
+                paginatedData.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell>
                       <div>
@@ -367,13 +438,16 @@ export default function AdminAbsensiPage() {
                           {item.employeeName}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {item.role}
+                          {/* @ts-ignore */}
+                          {item.role || "Staff"}
                         </p>
                       </div>
                     </TableCell>
                     <TableCell>{item.branch}</TableCell>
                     <TableCell className="text-center">
-                      {format(item.date, "dd MMM yyyy", { locale: id })}
+                      {format(new Date(item.date), "dd MMM yyyy", {
+                        locale: id,
+                      })}
                     </TableCell>
                     <TableCell className="text-center text-muted-foreground italic">
                       {item.shift}
@@ -385,18 +459,24 @@ export default function AdminAbsensiPage() {
                       {item.checkOut}
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge
-                        variant="outline"
-                        className={`w-24 justify-center ${
-                          statusConfig[item.status as keyof typeof statusConfig]
-                            ?.className
-                        }`}
-                      >
-                        {
-                          statusConfig[item.status as keyof typeof statusConfig]
-                            ?.label
-                        }
-                      </Badge>
+                      {!item.isPresent ? (
+                        <Badge
+                          variant="outline"
+                          className="w-24 justify-center bg-slate-100 text-slate-500 border-dashed"
+                        >
+                          Belum Hadir
+                        </Badge>
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className={`w-24 justify-center ${
+                            statusConfig[item.status]?.className ||
+                            "bg-slate-100"
+                          }`}
+                        >
+                          {statusConfig[item.status]?.label || item.status}
+                        </Badge>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
@@ -413,6 +493,47 @@ export default function AdminAbsensiPage() {
             </TableBody>
           </Table>
         </CardContent>
+        {filteredData.length > 0 && (
+          <div className="flex items-center justify-between p-4 border-t">
+            <p className="text-sm text-muted-foreground">
+              Menampilkan {startIndex + 1}-
+              {Math.min(endIndex, filteredData.length)} dari{" "}
+              {filteredData.length} data
+            </p>
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className={
+                      currentPage === 1
+                        ? "pointer-events-none opacity-50"
+                        : "cursor-pointer"
+                    }
+                  />
+                </PaginationItem>
+
+                {/* Simple logic for now: show current page */}
+                <PaginationItem>
+                  <PaginationLink isActive>{currentPage}</PaginationLink>
+                </PaginationItem>
+
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() =>
+                      setCurrentPage((p) => Math.min(totalPages, p + 1))
+                    }
+                    className={
+                      currentPage === totalPages
+                        ? "pointer-events-none opacity-50"
+                        : "cursor-pointer"
+                    }
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
       </Card>
     </div>
   );

@@ -36,6 +36,7 @@ interface BranchContextType {
     role?: RoleType;
     branch?: Branch;
     error?: string;
+    employee?: { id: string; name: string; role: string; branch: string };
   }>;
   logout: () => void;
   isSuperAdmin: boolean;
@@ -56,8 +57,6 @@ const defaultBranches: Branch[] = [
     id: "bangil",
     name: "Cabang Bangil",
     type: "cabang",
-    email: "bangil@bestea.com",
-    password: "123",
     address: "Jl. Raya Bangil No. 123",
     phone: "0343-123456",
   },
@@ -65,8 +64,6 @@ const defaultBranches: Branch[] = [
     id: "pasuruan",
     name: "Cabang Pasuruan",
     type: "cabang",
-    email: "pasuruan@bestea.com",
-    password: "123",
     address: "Jl. Raya Pasuruan No. 456",
     phone: "0343-654321",
   },

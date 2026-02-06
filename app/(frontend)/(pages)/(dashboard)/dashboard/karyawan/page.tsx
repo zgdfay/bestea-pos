@@ -57,6 +57,15 @@ import {
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "sonner";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { useEmployee } from "@/app/context/employee-context";
 import { useBranch } from "@/contexts/branch-context";
 import { Employee, statusConfig, roles } from "./data/mock-data";
@@ -68,6 +77,8 @@ export default function KaryawanPage() {
   const cabangList = branches.filter((b) => b.type === "cabang");
   const [searchQuery, setSearchQuery] = useState("");
   const [branchFilter, setBranchFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 8;
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -183,6 +194,11 @@ export default function KaryawanPage() {
     return matchSearch && matchBranch;
   });
 
+  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedEmployees = filteredEmployees.slice(startIndex, endIndex);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -253,117 +269,175 @@ export default function KaryawanPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredEmployees.map((emp) => (
-                <TableRow key={emp.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-9 w-9">
-                        <AvatarFallback className="bg-blue-100 text-blue-700 font-bold text-xs">
-                          {emp.name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-semibold text-sm">{emp.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {emp.role}
-                        </p>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="space-y-1">
-                      <div className="flex items-center text-xs text-muted-foreground">
-                        <Mail className="mr-1.5 h-3 w-3" />
-                        {emp.email}
-                      </div>
-                      <div className="flex items-center text-xs text-muted-foreground">
-                        <Phone className="mr-1.5 h-3 w-3" />
-                        {emp.phone}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {emp.pin ? (
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          variant="outline"
-                          className="bg-blue-50 text-blue-700 border-blue-200 font-mono"
-                        >
-                          <Key className="h-3 w-3 mr-1" />
-                          {emp.pin}
-                        </Badge>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center text-sm">
-                      <Building2 className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                      {emp.branch}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={
-                        statusConfig[emp.status as keyof typeof statusConfig]
-                          .className
-                      }
-                    >
-                      {
-                        statusConfig[emp.status as keyof typeof statusConfig]
-                          .label
-                      }
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {emp.joinDate}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Opsi</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => handleOpenModal(emp)}>
-                          Edit Data
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            const newPin = generatePin();
-                            resetPin(emp.id, newPin);
-                            toast.success(
-                              `PIN baru untuk ${emp.name}: ${newPin}`,
-                            );
-                          }}
-                        >
-                          <RefreshCw className="h-4 w-4 mr-2" />
-                          Reset PIN
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-destructive"
-                          onClick={() => confirmDelete(emp.id)}
-                        >
-                          Hapus Karyawan
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+              {paginatedEmployees.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className="h-24 text-center text-muted-foreground"
+                  >
+                    Tidak ada karyawan ditemukan.
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                paginatedEmployees.map((emp) => (
+                  <TableRow key={emp.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-9 w-9">
+                          <AvatarFallback className="bg-blue-100 text-blue-700 font-bold text-xs">
+                            {emp.name
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-semibold text-sm">{emp.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {emp.role}
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <div className="flex items-center text-xs text-muted-foreground">
+                          <Mail className="mr-1.5 h-3 w-3" />
+                          {emp.email}
+                        </div>
+                        <div className="flex items-center text-xs text-muted-foreground">
+                          <Phone className="mr-1.5 h-3 w-3" />
+                          {emp.phone}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {emp.pin ? (
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className="bg-blue-50 text-blue-700 border-blue-200 font-mono"
+                          >
+                            <Key className="h-3 w-3 mr-1" />
+                            {emp.pin}
+                          </Badge>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center text-sm">
+                        <Building2 className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                        {emp.branch}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={
+                          statusConfig[emp.status as keyof typeof statusConfig]
+                            .className
+                        }
+                      >
+                        {
+                          statusConfig[emp.status as keyof typeof statusConfig]
+                            .label
+                        }
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {emp.joinDate}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Opsi</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => handleOpenModal(emp)}
+                          >
+                            Edit Data
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              const newPin = generatePin();
+                              resetPin(emp.id, newPin);
+                              toast.success(
+                                `PIN baru untuk ${emp.name}: ${newPin}`,
+                              );
+                            }}
+                          >
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Reset PIN
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => confirmDelete(emp.id)}
+                          >
+                            Hapus Karyawan
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
+        {filteredEmployees.length > 0 && (
+          <div className="flex items-center justify-between p-4 border-t">
+            <p className="text-sm text-muted-foreground">
+              Menampilkan {startIndex + 1}-
+              {Math.min(endIndex, filteredEmployees.length)} dari{" "}
+              {filteredEmployees.length} karyawan
+            </p>
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className={
+                      currentPage === 1
+                        ? "pointer-events-none opacity-50"
+                        : "cursor-pointer"
+                    }
+                  />
+                </PaginationItem>
+
+                {/* Simple logic for now: show current page */}
+                <PaginationItem>
+                  <PaginationLink isActive>{currentPage}</PaginationLink>
+                </PaginationItem>
+
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() =>
+                      setCurrentPage((p) => Math.min(totalPages, p + 1))
+                    }
+                    className={
+                      currentPage === totalPages
+                        ? "pointer-events-none opacity-50"
+                        : "cursor-pointer"
+                    }
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
       </Card>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

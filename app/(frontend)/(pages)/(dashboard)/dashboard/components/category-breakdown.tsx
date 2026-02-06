@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useTransactions } from "@/app/context/transaction-context";
 
 const formatter = new Intl.NumberFormat("id-ID", {
   style: "currency",
@@ -14,55 +15,51 @@ const formatter = new Intl.NumberFormat("id-ID", {
   minimumFractionDigits: 0,
 });
 
-const categoryBreakdown = [
-  { category: "Tea", percentage: 45, revenue: 1612000, color: "bg-green-500" },
-  { category: "Milk", percentage: 28, revenue: 1003000, color: "bg-blue-500" },
-  {
-    category: "Coffee",
-    percentage: 18,
-    revenue: 645000,
-    color: "bg-amber-500",
-  },
-  {
-    category: "Squash",
-    percentage: 9,
-    revenue: 320000,
-    color: "bg-purple-500",
-  },
+const COLORS = [
+  "bg-green-500",
+  "bg-blue-500",
+  "bg-amber-500",
+  "bg-purple-500",
+  "bg-rose-500",
 ];
 
 export function CategoryBreakdown() {
+  const { getBranchPerformance } = useTransactions();
+  const branchBreakdown = getBranchPerformance().map((b, i) => ({
+    ...b,
+    color: COLORS[i % COLORS.length],
+  }));
+  const totalRevenue = branchBreakdown.reduce((acc, b) => acc + b.revenue, 0);
+
   return (
     <Card className="col-span-4 lg:col-span-3">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base md:text-lg">
-          Penjualan per Kategori
-        </CardTitle>
+        <CardTitle className="text-base md:text-lg">Cabang Terlaris</CardTitle>
         <CardDescription className="text-xs md:text-sm">
-          Breakdown penjualan berdasarkan kategori produk.
+          Breakdown penjualan berdasarkan cabang.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {categoryBreakdown.map((cat) => (
-          <div key={cat.category} className="space-y-1.5">
+        {branchBreakdown.map((item) => (
+          <div key={item.branch} className="space-y-1.5">
             <div className="flex items-center justify-between text-xs md:text-sm">
               <div className="flex items-center gap-2">
-                <div className={`w-2.5 h-2.5 rounded-full ${cat.color}`} />
-                <span className="font-medium">{cat.category}</span>
+                <div className={`w-2.5 h-2.5 rounded-full ${item.color}`} />
+                <span className="font-medium">{item.branch}</span>
               </div>
               <div className="flex items-center gap-3 md:gap-4">
                 <span className="text-muted-foreground text-xs">
-                  {cat.percentage}%
+                  {item.percentage}%
                 </span>
                 <span className="font-bold w-20 md:w-24 text-right text-xs md:text-sm">
-                  {formatter.format(cat.revenue)}
+                  {formatter.format(item.revenue)}
                 </span>
               </div>
             </div>
             <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
               <div
-                className={`h-full ${cat.color} transition-all`}
-                style={{ width: `${cat.percentage}%` }}
+                className={`h-full ${item.color} transition-all`}
+                style={{ width: `${item.percentage}%` }}
               />
             </div>
           </div>
@@ -74,7 +71,7 @@ export function CategoryBreakdown() {
               Total Pendapatan
             </span>
             <span className="text-lg md:text-xl font-bold">
-              {formatter.format(3580000)}
+              {formatter.format(totalRevenue)}
             </span>
           </div>
         </div>

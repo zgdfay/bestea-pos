@@ -47,6 +47,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { initialCategories, type Product } from "./data/mock-data-products";
 import { useProducts } from "@/app/context/product-context";
 
@@ -54,6 +63,8 @@ export default function ProductPage() {
   const { products, addProduct, updateProduct, deleteProduct } = useProducts();
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 8;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -78,6 +89,11 @@ export default function ProductPage() {
       categoryFilter === "all" || prod.category === categoryFilter;
     return matchSearch && matchCategory;
   });
+
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
 
   const handleOpenModal = (prod: Product | null = null) => {
     if (prod) {
@@ -212,94 +228,169 @@ export default function ProductPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[80px]">Gambar</TableHead>
-                <TableHead>Nama Produk</TableHead>
-                <TableHead>Kategori</TableHead>
-                <TableHead>Harga Dasar</TableHead>
-                <TableHead className="text-center">Stok</TableHead>
-                <TableHead className="text-center">Status</TableHead>
-                <TableHead className="text-right">Aksi</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredProducts.map((prod) => (
-                <TableRow key={prod.id}>
-                  <TableCell>
-                    <div className="h-10 w-10 rounded-md bg-slate-100 flex items-center justify-center text-slate-400">
-                      <ImageIcon className="h-5 w-5" />
+          {paginatedProducts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Package className="h-12 w-12 text-muted-foreground/50" />
+              <p className="text-muted-foreground">
+                Tidak ada produk yang ditemukan
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {paginatedProducts.map((prod) => (
+                  <Card
+                    key={prod.id}
+                    className="overflow-hidden hover:shadow-md transition-shadow"
+                  >
+                    {/* Product Image */}
+                    <div className="h-40 bg-slate-100 flex items-center justify-center relative">
+                      {prod.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={prod.image}
+                          alt={prod.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <ImageIcon className="h-12 w-12 text-slate-300" />
+                      )}
+                      {/* Status Badge */}
+                      <div className="absolute top-2 right-2">
+                        {prod.status === "active" ? (
+                          <Badge className="bg-green-100 text-green-700 border-none hover:bg-green-100">
+                            Aktif
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary">Arsip</Badge>
+                        )}
+                      </div>
                     </div>
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    {prod.name}
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {prod.category}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="bg-slate-50">
-                      {prod.category}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{formatCurrency(prod.price)}</TableCell>
-                  <TableCell className="text-center">
-                    <span
-                      className={`font-semibold ${
-                        !prod.trackStock
-                          ? "text-blue-600"
-                          : prod.stock < 10
-                            ? "text-red-600"
-                            : "text-slate-700"
-                      }`}
-                    >
-                      {prod.trackStock ? prod.stock : "Unlimited"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {prod.status === "active" ? (
-                      <Badge className="bg-green-100 text-green-700 border-none hover:bg-green-100">
-                        Aktif
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary">Arsip</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleOpenModal(prod)}>
+
+                    {/* Product Info */}
+                    <CardContent className="p-4 space-y-3">
+                      <div>
+                        <h3 className="font-semibold text-sm line-clamp-1">
+                          {prod.name}
+                        </h3>
+                        <Badge
+                          variant="outline"
+                          className="bg-slate-50 mt-1 text-xs"
+                        >
+                          {prod.category}
+                        </Badge>
+                      </div>
+
+                      {/* Variants */}
+                      {prod.variants && prod.variants.length > 0 ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground font-medium">
+                            Varian:
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {prod.variants.map((v, i) => (
+                              <Badge
+                                key={i}
+                                variant="outline"
+                                className="text-xs bg-blue-50 text-blue-700 border-blue-200"
+                              >
+                                {v.name}: {formatCurrency(v.price)}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-sm font-semibold text-green-600">
+                          {formatCurrency(prod.price)}
+                        </div>
+                      )}
+
+                      {/* Stock */}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Stok:</span>
+                        <span
+                          className={`font-semibold ${
+                            !prod.trackStock
+                              ? "text-blue-600"
+                              : prod.stock < 10
+                                ? "text-red-600"
+                                : "text-slate-700"
+                          }`}
+                        >
+                          {prod.trackStock ? prod.stock : "Unlimited"}
+                        </span>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-2 pt-2 border-t">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => handleOpenModal(prod)}
+                        >
                           Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive"
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
                           onClick={() => setDeleteId(prod.id)}
                         >
-                          Hapus
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {filteredProducts.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={7}
-                    className="text-center py-8 text-muted-foreground"
-                  >
-                    Tidak ada produk yang ditemukan
-                  </TableCell>
-                </TableRow>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Pagination Controls */}
+              {filteredProducts.length > 0 && (
+                <div className="flex items-center justify-between mt-6 pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Menampilkan {startIndex + 1}-
+                    {Math.min(endIndex, filteredProducts.length)} dari{" "}
+                    {filteredProducts.length} produk
+                  </p>
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          onClick={() =>
+                            setCurrentPage((p) => Math.max(1, p - 1))
+                          }
+                          className={
+                            currentPage === 1
+                              ? "pointer-events-none opacity-50"
+                              : "cursor-pointer"
+                          }
+                        />
+                      </PaginationItem>
+
+                      {/* Simple logic for now: show current page */}
+                      <PaginationItem>
+                        <PaginationLink isActive>{currentPage}</PaginationLink>
+                      </PaginationItem>
+
+                      <PaginationItem>
+                        <PaginationNext
+                          onClick={() =>
+                            setCurrentPage((p) => Math.min(totalPages, p + 1))
+                          }
+                          className={
+                            currentPage === totalPages
+                              ? "pointer-events-none opacity-50"
+                              : "cursor-pointer"
+                          }
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
               )}
-            </TableBody>
-          </Table>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -512,7 +603,10 @@ export default function ProductPage() {
                         const newVariants = formData.variants?.filter(
                           (_, i) => i !== idx,
                         );
-                        setFormData({ ...formData, variants: newVariants });
+                        setFormData({
+                          ...formData,
+                          variants: newVariants || [],
+                        });
                       }}
                     >
                       <Trash2 className="h-4 w-4" />

@@ -25,11 +25,7 @@ const breadcrumbMap: Record<string, { parent?: string; label: string }> = {
   "/dashboard/karyawan/role": { parent: "Karyawan", label: "Role" },
   "/dashboard/karyawan/absensi": { parent: "Karyawan", label: "Absensi" },
   "/dashboard/karyawan/payroll": { parent: "Karyawan", label: "Payroll" },
-  "/dashboard/request-stok": { parent: "Dashboard", label: "Request Stok" },
-  "/dashboard/request-stok/riwayat": {
-    parent: "Request Stok",
-    label: "Riwayat",
-  },
+
   "/dashboard/cabang": { parent: "Dashboard", label: "Cabang" },
   "/dashboard/cabang/tambah": { parent: "Cabang", label: "Tambah" },
   "/dashboard/laporan": { parent: "Dashboard", label: "Laporan" },

@@ -98,32 +98,20 @@ const superAdminNavItems = [
     icon: FileBarChart,
     items: [
       {
-        title: "Penjualan",
-        url: "/dashboard/laporan/penjualan",
-      },
-      {
-        title: "Stok",
-        url: "/dashboard/laporan/stok",
-      },
-      {
         title: "Keuangan",
-        url: "/dashboard/laporan/keuangan",
+        url: "/dashboard/laporan",
+      },
+      {
+        title: "Riwayat Penjualan",
+        url: "/dashboard/laporan/riwayat",
       },
     ],
   },
   {
     title: "Pengaturan",
-    url: "/dashboard/pengaturan",
+    url: "/dashboard/pengaturan/akun",
     icon: Settings,
     items: [
-      {
-        title: "Umum",
-        url: "/dashboard/pengaturan",
-      },
-      {
-        title: "Printer",
-        url: "/dashboard/pengaturan/printer",
-      },
       {
         title: "Akun",
         url: "/dashboard/pengaturan/akun",
@@ -145,21 +133,7 @@ const branchAdminNavItems = [
       },
     ],
   },
-  {
-    title: "Request Stok",
-    url: "/dashboard/request-stok",
-    icon: PackagePlus,
-    items: [
-      {
-        title: "Buat Request",
-        url: "/dashboard/request-stok",
-      },
-      {
-        title: "Riwayat Request",
-        url: "/dashboard/request-stok/riwayat",
-      },
-    ],
-  },
+
   {
     title: "Laporan",
     url: "/dashboard/laporan",
@@ -192,12 +166,12 @@ const branchAdminNavItems = [
   },
   {
     title: "Pengaturan",
-    url: "/dashboard/pengaturan",
+    url: "/dashboard/pengaturan/akun",
     icon: Settings,
     items: [
       {
-        title: "Printer",
-        url: "/dashboard/pengaturan/printer",
+        title: "Akun",
+        url: "/dashboard/pengaturan/akun",
       },
     ],
   },
@@ -278,14 +252,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <TeamSwitcher
-          teams={teams}
-          currentTeamId={currentBranch.id}
-          onTeamChange={(teamId) => {
-            const branch = branches.find((b) => b.id === teamId);
-            if (branch) setCurrentBranch(branch);
-          }}
-        />
+        <TeamSwitcher />
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={navItems} />

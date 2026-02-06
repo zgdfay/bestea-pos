@@ -22,6 +22,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { ProductProvider } from "./context/product-context";
 import { EmployeeProvider } from "./context/employee-context";
 import { BranchProvider } from "@/contexts/branch-context";
+import { TransactionProvider } from "./context/transaction-context";
 
 export default function RootLayout({
   children,
@@ -36,8 +37,10 @@ export default function RootLayout({
         <BranchProvider>
           <EmployeeProvider>
             <ProductProvider>
-              {children}
-              <Toaster />
+              <TransactionProvider>
+                {children}
+                <Toaster />
+              </TransactionProvider>
             </ProductProvider>
           </EmployeeProvider>
         </BranchProvider>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, CalendarIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -25,11 +25,7 @@ import { ShiftTable } from "./components/ShiftTable";
 import { ShiftModal } from "./components/ShiftModal";
 
 // Mock Data
-const initialEmployees = [
-  { id: "EMP001", name: "Faayy", role: "Kasir" },
-  { id: "EMP002", name: "Rina Amelia", role: "Kasir" },
-  { id: "EMP003", name: "Budi Santoso", role: "Admin Cabang" },
-];
+// Mock Employees removed, using Context
 
 const days = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"];
 const shiftColors: Record<string, string> = {
@@ -76,61 +72,96 @@ for (let i = -4; i <= 4; i++) {
 // Default empty shift for an employee
 const createEmptyWeek = () => Array(7).fill({ type: "Libur", time: "-" });
 
+import { useEmployee } from "@/app/context/employee-context";
+
+// ... constants ...
+
 export default function ShiftPage() {
+  const { employees } = useEmployee();
   // Default to index 4 (Current Week) since we generated -4 to 4
   const [currentWeek, setCurrentWeek] = useState(availableWeeks[4]);
-  const [employees] = useState(initialEmployees);
 
   // Initial structure: Initialize all available weeks with empty shifts
-  const [allWeeklyShifts, setAllWeeklyShifts] = useState(() => {
+  // We lazily initialize this, but now we need to respect the Context employees
+  const [allWeeklyShifts, setAllWeeklyShifts] = useState<
+    Record<string, Record<string, { type: string; time: string }[]>>
+  >(() => {
     const initial: Record<
       string,
       Record<string, { type: string; time: string }[]>
     > = {};
+
     availableWeeks.forEach((week) => {
       initial[week] = {};
-      initialEmployees.forEach((emp) => {
+      // Initialize for current employees context (if available during first render)
+      // Note: During first render 'employees' from context might be initial mock data, which is fine.
+      employees.forEach((emp) => {
         initial[week][emp.id] = createEmptyWeek();
       });
     });
 
-    // Add mock data for "Current Week" (index 4)
+    // Add mock data for "Current Week" (index 4) - Preserving the demo data logic for key employees
     const currentWeekLabel = availableWeeks[4];
     if (initial[currentWeekLabel]) {
-      initial[currentWeekLabel]["EMP001"][0] = {
-        type: "Pagi",
-        time: "08:00 - 16:00",
-      };
-      initial[currentWeekLabel]["EMP001"][1] = {
-        type: "Pagi",
-        time: "08:00 - 16:00",
-      };
-      initial[currentWeekLabel]["EMP002"][0] = {
-        type: "Sore",
-        time: "16:00 - 22:00",
-      };
-    }
-
-    // Add some mock history data (index 3 - last week)
-    const lastWeekLabel = availableWeeks[3];
-    if (initial[lastWeekLabel]) {
-      initial[lastWeekLabel]["EMP001"][0] = {
-        type: "Sore",
-        time: "16:00 - 22:00",
-      };
+      // We check if these IDs exist in the employee list before assigning to avoid zombie keys if emp deleted
+      if (employees.some((e) => e.id === "EMP001")) {
+        if (!initial[currentWeekLabel]["EMP001"])
+          initial[currentWeekLabel]["EMP001"] = createEmptyWeek();
+        initial[currentWeekLabel]["EMP001"][0] = {
+          type: "Pagi",
+          time: "08:00 - 16:00",
+        };
+        initial[currentWeekLabel]["EMP001"][1] = {
+          type: "Pagi",
+          time: "08:00 - 16:00",
+        };
+      }
+      if (employees.some((e) => e.id === "EMP002")) {
+        if (!initial[currentWeekLabel]["EMP002"])
+          initial[currentWeekLabel]["EMP002"] = createEmptyWeek();
+        initial[currentWeekLabel]["EMP002"][0] = {
+          type: "Sore",
+          time: "16:00 - 22:00",
+        };
+      }
     }
 
     return initial;
   });
 
+  // Sync Effect: When employees change (e.g. added), ensure they have entries in the current state
+  // This solves "auto add to shift table"
+  useEffect(() => {
+    setAllWeeklyShifts((prev) => {
+      const next = { ...prev };
+      let hasChanges = false;
+
+      availableWeeks.forEach((week) => {
+        if (!next[week]) next[week] = {};
+        employees.forEach((emp) => {
+          if (!next[week][emp.id]) {
+            next[week][emp.id] = createEmptyWeek();
+            hasChanges = true;
+          }
+        });
+      });
+
+      return hasChanges ? next : prev;
+    });
+  }, [employees]);
+
   // Derived state for current week
-  const employeeShifts = allWeeklyShifts[currentWeek];
+  // We default to {} to prevent crash if week key missing
+  const employeeShifts = allWeeklyShifts[currentWeek] || {};
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedData, setSelectedData] = useState<any>(null);
 
   const handleCellClick = (empId: string, dayIdx: number) => {
+    // Safety check
+    if (!employeeShifts[empId]) return;
+
     const current = employeeShifts[empId][dayIdx];
     setSelectedData({
       empId,

@@ -17,7 +17,12 @@ import { Input } from "@/components/ui/input";
 interface PinEntryModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: (employee: { id: string; name: string; role: string }) => void;
+  onSuccess: (employee: {
+    id: string;
+    name: string;
+    role: string;
+    branch: string;
+  }) => void;
   branchName: string;
   title?: string;
   description?: string;
@@ -74,6 +79,7 @@ export function PinEntryModal({
           id: employee.id,
           name: employee.name,
           role: employee.role,
+          branch: employee.branch,
         });
         // Don't call onOpenChange here - let the parent (shift-modal) handle it
         // onOpenChange(false) was causing a race condition with pendingEmployee state

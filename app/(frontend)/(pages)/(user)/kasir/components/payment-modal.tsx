@@ -72,18 +72,14 @@ export function PaymentModal({
   }, [amountPaid, total]);
 
   const handleConfirm = () => {
-    if (paymentMethod === "cash") {
-      const paid = parseNumber(amountPaid);
-      if (paid < total) {
-        toast.error("Pembayaran Kurang", {
-          description: `Kurang ${formatter.format(total - paid)}`,
-        });
-        return;
-      }
-      onConfirm("cash", paid);
-    } else {
-      onConfirm("qris", total);
+    const paid = parseNumber(amountPaid);
+    if (paid < total) {
+      toast.error("Pembayaran Kurang", {
+        description: `Kurang ${formatter.format(total - paid)}`,
+      });
+      return;
     }
+    onConfirm(paymentMethod, paid);
     setIsSuccess(true);
     toast.success("Pembayaran Berhasil");
   };
@@ -114,14 +110,12 @@ export function PaymentModal({
                   Transaksi telah berhasil diproses.
                 </p>
               </div>
-              {paymentMethod === "cash" && (
-                <div className="bg-slate-50 p-4 rounded-lg w-full mt-4 border border-slate-100">
-                  <p className="text-sm text-slate-500">Kembalian</p>
-                  <p className="text-2xl font-bold text-green-600">
-                    {formatter.format(change)}
-                  </p>
-                </div>
-              )}
+              <div className="bg-slate-50 p-4 rounded-lg w-full mt-4 border border-slate-100">
+                <p className="text-sm text-slate-500">Kembalian</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {formatter.format(change)}
+                </p>
+              </div>
               <Button
                 onClick={onClose}
                 className="w-full bg-green-600 hover:bg-green-700 text-white mt-6"
@@ -157,8 +151,8 @@ export function PaymentModal({
               variant={paymentMethod === "cash" ? "default" : "outline"}
               className={`h-16 flex flex-col gap-1 transition-all ${
                 paymentMethod === "cash"
-                  ? "bg-slate-900 border-slate-900"
-                  : "hover:border-slate-900 hover:bg-slate-50"
+                  ? "bg-slate-900 border-slate-900 hover:bg-slate-900"
+                  : "hover:bg-transparent"
               }`}
               onClick={() => setPaymentMethod("cash")}
             >
@@ -169,8 +163,8 @@ export function PaymentModal({
               variant={paymentMethod === "qris" ? "default" : "outline"}
               className={`h-16 flex flex-col gap-1 transition-all ${
                 paymentMethod === "qris"
-                  ? "bg-slate-900 border-slate-900"
-                  : "hover:border-slate-900 hover:bg-slate-50"
+                  ? "bg-slate-900 border-slate-900 hover:bg-slate-900"
+                  : "hover:bg-transparent"
               }`}
               onClick={() => setPaymentMethod("qris")}
             >
@@ -179,82 +173,68 @@ export function PaymentModal({
             </Button>
           </div>
 
-          {paymentMethod === "cash" ? (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label
-                  htmlFor="amountPaid"
-                  className="text-sm font-bold text-slate-700"
-                >
-                  Diterima
-                </Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
-                    Rp
-                  </span>
-                  <Input
-                    id="amountPaid"
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="0"
-                    className="pl-10 h-12 text-lg font-bold border-2 focus-visible:ring-slate-900"
-                    value={amountPaid}
-                    onChange={handleAmountChange}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                {uniqueQuickAmounts.map((amt) => (
-                  <Button
-                    key={amt}
-                    variant="outline"
-                    className="h-10 text-xs font-bold border-slate-200 hover:border-slate-900 hover:bg-slate-50"
-                    onClick={() => handleQuickPay(amt)}
-                  >
-                    {amt === total
-                      ? "Pas"
-                      : formatter.format(amt).replace("Rp", "").trim()}
-                  </Button>
-                ))}
-              </div>
-
-              <div
-                className={`p-4 rounded-xl border-2 transition-all ${
-                  parseNumber(amountPaid) >= total
-                    ? "bg-green-50 border-green-200"
-                    : "bg-slate-50 border-slate-100"
-                }`}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label
+                htmlFor="amountPaid"
+                className="text-sm font-bold text-slate-700"
               >
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-bold text-slate-600">
-                    Kembalian
-                  </span>
-                  <span
-                    className={`text-xl font-black ${
-                      parseNumber(amountPaid) >= total
-                        ? "text-green-600"
-                        : "text-slate-400"
-                    }`}
-                  >
-                    {formatter.format(change)}
-                  </span>
-                </div>
+                Diterima ({paymentMethod === "qris" ? "QRIS" : "Tunai"})
+              </Label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
+                  Rp
+                </span>
+                <Input
+                  id="amountPaid"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="0"
+                  className="pl-10 h-12 text-lg font-bold border-2 focus-visible:ring-slate-900"
+                  value={amountPaid}
+                  onChange={handleAmountChange}
+                />
               </div>
             </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center p-6 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
-              <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-100 mb-4">
-                <QrCode className="h-32 w-32 text-slate-900" />
-              </div>
-              <p className="text-sm font-bold text-slate-900 italic">
-                Scan QRIS Bestea POS
-              </p>
-              <p className="text-xs text-slate-500 mt-1">
-                Status: Menunggu pembayaran...
-              </p>
+
+            <div className="grid grid-cols-3 gap-2">
+              {uniqueQuickAmounts.map((amt) => (
+                <Button
+                  key={amt}
+                  variant="outline"
+                  className="h-10 text-xs font-bold border-slate-200 hover:border-slate-900 hover:bg-slate-50"
+                  onClick={() => handleQuickPay(amt)}
+                >
+                  {amt === total
+                    ? "Pas"
+                    : formatter.format(amt).replace("Rp", "").trim()}
+                </Button>
+              ))}
             </div>
-          )}
+
+            <div
+              className={`p-4 rounded-xl border-2 transition-all ${
+                parseNumber(amountPaid) >= total
+                  ? "bg-green-50 border-green-200"
+                  : "bg-slate-50 border-slate-100"
+              }`}
+            >
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-bold text-slate-600">
+                  Kembalian
+                </span>
+                <span
+                  className={`text-xl font-black ${
+                    parseNumber(amountPaid) >= total
+                      ? "text-green-600"
+                      : "text-slate-400"
+                  }`}
+                >
+                  {formatter.format(change)}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex flex-col-reverse sm:flex-row gap-3 sm:space-x-0 flex-none">
@@ -267,10 +247,7 @@ export function PaymentModal({
           </Button>
           <Button
             className="w-full sm:w-2/3 h-12 sm:h-14 text-base sm:text-lg font-semibold bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200 disabled:opacity-50 disabled:shadow-none"
-            disabled={
-              paymentMethod === "cash" &&
-              (parseNumber(amountPaid) < total || !amountPaid)
-            }
+            disabled={parseNumber(amountPaid) < total || !amountPaid}
             onClick={handleConfirm}
           >
             Selesaikan Pesanan

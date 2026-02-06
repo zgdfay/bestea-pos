@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
 } from "lucide-react";
+import { useTransactions } from "@/app/context/transaction-context";
 
 const formatter = new Intl.NumberFormat("id-ID", {
   style: "currency",
@@ -42,7 +43,7 @@ function StatsCard({ title, value, change, icon }: StatsCardProps) {
             <ArrowDownRight className="h-3 w-3 mr-1" />
           )}
           {isPositive ? "+" : ""}
-          {change}% dari kemarin
+          {change.toFixed(1)}% dari kemarin
         </p>
       </CardContent>
     </Card>
@@ -50,30 +51,33 @@ function StatsCard({ title, value, change, icon }: StatsCardProps) {
 }
 
 export function StatsCards() {
+  const { getDailyStats } = useTransactions();
+  const stats = getDailyStats();
+
   return (
     <div className="grid gap-3 md:gap-4 grid-cols-2 lg:grid-cols-4">
       <StatsCard
         title="Omset Hari Ini"
-        value={formatter.format(3580000)}
-        change={20.1}
+        value={formatter.format(stats.revenue)}
+        change={stats.revenueGrowth}
         icon={<DollarSign className="h-4 w-4 text-muted-foreground" />}
       />
       <StatsCard
         title="Total Transaksi"
-        value="142"
-        change={12}
+        value={stats.transactions.toString()}
+        change={stats.transactionGrowth}
         icon={<ShoppingBag className="h-4 w-4 text-muted-foreground" />}
       />
       <StatsCard
-        title="Rata-rata Order"
-        value={formatter.format(25211)}
-        change={-2.1}
+        title="Cabang Aktif"
+        value={stats.activeBranches}
+        change={0}
         icon={<Activity className="h-4 w-4 text-muted-foreground" />}
       />
       <StatsCard
         title="Produk Terjual"
-        value="382"
-        change={8}
+        value={stats.productsSold.toString()}
+        change={stats.productGrowth}
         icon={<Package className="h-4 w-4 text-muted-foreground" />}
       />
     </div>

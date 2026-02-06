@@ -6,6 +6,7 @@ import {
   ProductVariant,
 } from "../../(dashboard)/dashboard/produk/data/mock-data-products";
 import { useProducts } from "@/app/context/product-context";
+import { useTransactions } from "@/app/context/transaction-context";
 // Define CartItem locally since it's POS specific for now or we could move it to a shared type file.
 // For simplicity, let's redefine it here compatible with the new Product structure.
 export interface CartItem extends Omit<Product, "variants"> {
@@ -204,8 +205,22 @@ function KasirContent() {
     setIsShiftModalOpen(true);
   };
 
+  // Transaction Context for Syncing
+  const { addExpense: addTransactionExpense } = useTransactions();
+
   const handleConfirmCashOut = (amount: number, description: string) => {
+    // 1. Add to Shift Data (Local Cashier State)
     addExpense(amount, description);
+
+    // 2. Sync to Global Transaction Data (Admin Report)
+    addTransactionExpense({
+      branchId: currentBranch?.id || "unknown",
+      branchName: currentBranch?.name || "Unknown Branch",
+      category: "Operasional", // Default category for Quick Cash Out
+      description: description,
+      amount: amount,
+      recordedBy: activeEmployee?.name || "Kasir",
+    });
   };
 
   const handleAddToCart = (product: Product) => {

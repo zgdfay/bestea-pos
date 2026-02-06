@@ -22,40 +22,29 @@ const formatter = new Intl.NumberFormat("id-ID", {
   minimumFractionDigits: 0,
 });
 
-const recentSales = [
-  {
-    order: "TRX-001234",
-    name: "Jasmine Tea (L)",
-    method: "QRIS",
-    amount: 18000,
-  },
-  {
-    order: "TRX-001233",
-    name: "Mango Milk (M)",
-    method: "Tunai",
-    amount: 15000,
-  },
-  {
-    order: "TRX-001232",
-    name: "Lemon Tea (L) + 2",
-    method: "Tunai",
-    amount: 45000,
-  },
-  {
-    order: "TRX-001231",
-    name: "Choco Hazelnut",
-    method: "QRIS",
-    amount: 22000,
-  },
-  {
-    order: "TRX-001230",
-    name: "Lychee Tea (L)",
-    method: "Tunai",
-    amount: 18000,
-  },
-];
+// Static data removed
+
+import { useTransactions } from "@/app/context/transaction-context";
 
 export function RecentSales() {
+  const { transactions } = useTransactions();
+
+  // Get latest 5 completed transactions
+  const recentSales = transactions
+    .filter((t) => t.status === "completed")
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5)
+    .map((t) => ({
+      order: t.id,
+      name:
+        t.items
+          .map((i) => i.productName)
+          .join(", ")
+          .slice(0, 30) + (t.items.length > 1 ? "..." : ""),
+      method: t.paymentMethod,
+      amount: t.totalAmount,
+    }));
+
   return (
     <Card className="col-span-4 lg:col-span-3 flex flex-col max-h-[440px]">
       <CardHeader className="pb-3 shrink-0">
@@ -89,7 +78,7 @@ export function RecentSales() {
                   </div>
                 </TableCell>
                 <TableCell className="py-2 hidden sm:table-cell">
-                  <span className="text-xs">{sale.method}</span>
+                  <span className="text-xs uppercase">{sale.method}</span>
                 </TableCell>
                 <TableCell className="py-2 text-right font-bold text-xs md:text-sm">
                   {formatter.format(sale.amount)}
