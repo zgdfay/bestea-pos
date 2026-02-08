@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 
 interface ShiftModalProps {
   isOpen: boolean;
@@ -74,7 +75,25 @@ export function ShiftModal({
     }
   }, [selectedData, isOpen]);
 
+  const calculateDuration = (start: string, end: string) => {
+    if (!start || !end || start === "-" || end === "-") return 0;
+    const [startH, startM] = start.split(":").map(Number);
+    const [endH, endM] = end.split(":").map(Number);
+
+    let diffMs = endH * 60 + endM - (startH * 60 + startM);
+    if (diffMs < 0) diffMs += 24 * 60; // Midnight crossing
+
+    return diffMs / 60;
+  };
+
+  const duration = calculateDuration(startTime, endTime);
+
   const handleSave = () => {
+    if (selectedShiftType !== "Libur" && startTime === endTime) {
+      toast.error("Jam mulai dan jam selesai tidak boleh sama");
+      return;
+    }
+
     onSave({
       empId: selectedEmpId,
       dayIdx: selectedDayIdx,
@@ -157,26 +176,46 @@ export function ShiftModal({
           </div>
 
           {selectedShiftType !== "Libur" && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="start">Jam Mulai</Label>
-                <Input
-                  id="start"
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                />
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="start">Jam Mulai</Label>
+                  <Input
+                    id="start"
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="end">Jam Selesai</Label>
+                  <Input
+                    id="end"
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
+                  />
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="end">Jam Selesai</Label>
-                <Input
-                  id="end"
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                />
+              <div className="flex items-center justify-between text-xs px-1">
+                <span className="text-muted-foreground">
+                  Durasi Shift:{" "}
+                  <span className="font-bold text-foreground">
+                    {duration} Jam
+                  </span>
+                </span>
+                {startTime === endTime && (
+                  <span className="text-red-500 font-medium">
+                    Jam tidak boleh sama
+                  </span>
+                )}
+                {endTime < startTime && (
+                  <span className="text-amber-600 font-medium">
+                    Lintas hari (Malam)
+                  </span>
+                )}
               </div>
-            </div>
+            </>
           )}
         </div>
         <DialogFooter>

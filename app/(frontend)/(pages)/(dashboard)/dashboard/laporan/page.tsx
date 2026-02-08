@@ -101,7 +101,8 @@ export default function LaporanPage() {
         e.branchName ||
         branches.find((b) => b.id === e.branch_id)?.name ||
         "Unknown",
-      employeeName: e.recorded_by || e.recordedBy || "-",
+      employeeName:
+        e.employee?.name || e.recorded_by_name || e.recorded_by || "-",
     }));
   }, [data?.expenses, branches]);
 
@@ -256,7 +257,9 @@ export default function LaporanPage() {
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <ExpensesTable expenses={tableExpenses} />
+            <div className="col-span-1 lg:col-span-2">
+              <ExpensesTable expenses={tableExpenses} />
+            </div>
             <TopProducts products={calculatedTopProducts} />
           </div>
         </>

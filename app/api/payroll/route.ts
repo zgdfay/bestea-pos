@@ -55,15 +55,91 @@ export async function GET(request: NextRequest) {
       .from("attendance_records")
       .select("employee_id, check_in, check_out, status")
       .gte("date", startDate)
-      .lte("date", endDate)
-      .eq("status", "Hadir")
-      .not("check_out", "is", null);
+      .lte("date", endDate);
 
     if (attError) throw attError;
 
+    // 3.5 Fetch Shift Schedules (to determine Scheduled Days)
+    const { data: schedules, error: schedError } = await supabase
+        .from("shift_schedules")
+        .select("*");
+    
+    if (schedError) {
+        console.error("Error fetching schedules:", schedError);
+        // Don't throw, just continue with empty schedules (will result in 0 absences)
+    }
+
+    // 4. Merge Data
     // 4. Merge Data
     const payrollData = employees.map((emp) => {
-      // Check if record exists
+      // --- LIVE CALCULATION (Draft/Fallback) ---
+      const empAttendance = attendance?.filter((a) => a.employee_id === emp.id) || [];
+      const attendanceCount = empAttendance.length;
+      
+      const empSchedules = schedules?.filter((s: any) => s.employee_id === emp.id) || [];
+      const scheduledDaysOfWeek = empSchedules.map((s: any) => s.day_of_week);
+
+      let scheduledCount = 0;
+      const daysInMonth = new Date(parseInt(yyyy), parseInt(mm), 0).getDate();
+      
+      const now = new Date();
+      let checkUntilDay = daysInMonth;
+      if (now.getFullYear() === parseInt(yyyy) && now.getMonth() + 1 === parseInt(mm)) {
+        checkUntilDay = now.getDate();
+      } else if (new Date(parseInt(yyyy), parseInt(mm) - 1, 1) > now) {
+         checkUntilDay = 0;
+      }
+
+      for (let day = 1; day <= checkUntilDay; day++) {
+        const date = new Date(parseInt(yyyy), parseInt(mm) - 1, day);
+        if (emp.join_date) {
+            const joinDate = new Date(emp.join_date);
+            const dateStr = date.toISOString().split('T')[0];
+            const joinDateStr = joinDate.toISOString().split('T')[0];
+            if (dateStr < joinDateStr) continue;
+        }
+        let dayOfWeek = date.getDay() - 1; 
+        if (dayOfWeek === -1) dayOfWeek = 6; 
+        if (scheduledDaysOfWeek.includes(dayOfWeek)) {
+            scheduledCount++;
+        }
+      }
+
+      if (scheduledDaysOfWeek.length === 0) {
+        scheduledCount = attendanceCount; 
+      }
+
+      let daysPresent = 0;
+      let daysExcused = 0;
+      let daysAlphaRecord = 0;
+
+      empAttendance.forEach(att => {
+        const s = att.status?.toLowerCase() || "";
+        if (s === "hadir" || s.includes("present") || s === "terlambat" || s.includes("late")) {
+            if (s.includes("pulang awal") || s.includes("early out")) {
+                daysExcused++;
+            } else {
+                daysPresent++;
+            }
+        } else if (s === "sakit" || s.includes("sick") || s === "izin" || s.includes("leave")) {
+            daysExcused++;
+        } else if (s === "alpha" || s === "alpa" || s.includes("absent")) {
+            daysAlphaRecord++;
+        } else {
+            daysPresent++;
+        }
+      });
+      
+      const totalRecorded = daysPresent + daysExcused + daysAlphaRecord;
+      const daysAlphaSystem = Math.max(0, scheduledCount - totalRecorded);
+      const totalAlpha = daysAlphaSystem + daysAlphaRecord;
+
+      const baseSalary = Number(emp.base_salary) || 0;
+      const deductionAmount = Number(emp.deduction_amount) || 0;
+      const totalDeduction = (totalAlpha * deductionAmount) + (daysExcused * (deductionAmount * 0.5));
+      const totalSalary = Math.max(0, baseSalary - totalDeduction);
+
+      // --- CHECK FOR EXISTING RECORD ---
       const record = existingPayrolls?.find((p) => p.employee_id === emp.id);
 
       if (record) {
@@ -72,52 +148,43 @@ export async function GET(request: NextRequest) {
           employeeId: emp.id,
           employeeName: emp.name,
           role: emp.role,
-          month: monthParam, // Return in requested format
+          month: monthParam,
           hoursWorked: Number(record.hours_worked),
           baseSalary: Number(record.base_salary),
           hourlyRate: Number(record.hourly_rate),
           totalSalary: Number(record.total_salary),
           status: record.status,
-          paidAt: record.paid_at, // Add paidAt
+          paidAt: record.paid_at,
           isDraft: false,
+          // Snapshot fallback: use stored values if available, otherwise use live calculation
+          attendanceDays: record.attendance_days || daysPresent,
+          excusedDays: record.excused_days || daysExcused,
+          alphaDays: record.alpha_days || totalAlpha,
+          scheduledDays: record.scheduled_days || scheduledCount,
+          totalDeduction: Number(record.deductions) || totalDeduction,
         };
       }
 
-      // Calculate from Attendance (Draft)
-      const empAttendance = attendance?.filter((a) => a.employee_id === emp.id) || [];
-      
-      let totalHours = 0;
-      empAttendance.forEach((att) => {
-        if (att.check_in && att.check_out) {
-          const start = new Date(att.check_in).getTime();
-          const end = new Date(att.check_out).getTime();
-          const durationMs = end - start;
-          const durationHours = durationMs / (1000 * 60 * 60);
-          totalHours += durationHours;
-        }
-      });
-
-      // Round to 2 decimal places
-      totalHours = Math.round(totalHours * 100) / 100;
-
-      const baseSalary = Number(emp.base_salary) || 0;
-      const hourlyRate = Number(emp.hourly_rate) || 0;
-      const totalHourly = totalHours * hourlyRate;
-      const totalSalary = baseSalary + totalHourly;
-
+      // --- RETURN DRAFT ---
       return {
-        id: `draft-${emp.id}`, // Temporary ID
+        id: `draft-${emp.id}`,
         employeeId: emp.id,
         employeeName: emp.name,
         role: emp.role,
         month: monthParam,
-        hoursWorked: totalHours,
+        hoursWorked: daysPresent, 
         baseSalary: baseSalary,
-        hourlyRate: hourlyRate,
-        totalSalary: Math.round(totalSalary), // Round total salary
+        hourlyRate: deductionAmount, 
+        totalSalary: Math.round(totalSalary), 
         status: "Draft",
         paidAt: null,
         isDraft: true,
+        attendanceDays: daysPresent,
+        excusedDays: daysExcused,
+        alphaDays: totalAlpha,
+        scheduledDays: scheduledCount,
+        deductionAmount: deductionAmount, 
+        totalDeduction: totalDeduction
       };
     });
 
@@ -147,7 +214,13 @@ export async function POST(request: NextRequest) {
       baseSalary,
       hourlyRate,
       totalSalary, 
-      status 
+      status,
+      // Snapshot fields:
+      attendanceDays,
+      excusedDays,
+      alphaDays,
+      scheduledDays,
+      totalDeduction
     } = body;
 
     // Convert "MM-YYYY" to "YYYY-MM"
@@ -174,7 +247,13 @@ export async function POST(request: NextRequest) {
           total_salary: totalSalary,
           status: status, // "Paid" or "Pending"
           updated_at: new Date().toISOString(),
-          ...(status === 'Paid' ? { paid_at: new Date().toISOString() } : {})
+          ...(status === 'Paid' ? { paid_at: new Date().toISOString() } : {}),
+          // Update snapshots
+          attendance_days: attendanceDays,
+          excused_days: excusedDays,
+          alpha_days: alphaDays,
+          scheduled_days: scheduledDays,
+          deductions: totalDeduction
         })
         .eq("id", existing.id)
         .select()
@@ -194,7 +273,13 @@ export async function POST(request: NextRequest) {
           hourly_rate: hourlyRate,
           total_salary: totalSalary,
           status: status,
-          ...(status === 'Paid' ? { paid_at: new Date().toISOString() } : {})
+          ...(status === 'Paid' ? { paid_at: new Date().toISOString() } : {}),
+          // Store snapshots
+          attendance_days: attendanceDays,
+          excused_days: excusedDays,
+          alpha_days: alphaDays,
+          scheduled_days: scheduledDays,
+          deductions: totalDeduction
         })
         .select()
         .single();

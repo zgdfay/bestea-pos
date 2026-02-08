@@ -77,6 +77,13 @@ interface PayrollRecord {
   totalSalary: number;
   status: "Draft" | "Paid";
   paidAt?: string | null;
+  attendanceDays?: number;
+  scheduledDays?: number;
+  absences?: number;
+  deductionAmount?: number;
+  excusedDays?: number;
+  alphaDays?: number;
+  totalDeduction?: number;
 }
 
 const MONTH_MAP: Record<string, string> = {
@@ -192,7 +199,13 @@ export default function PayrollPage() {
         hourlyRate: item.hourlyRate,
         totalSalary: item.totalSalary,
         status: "Paid",
-        paidAt: new Date().toISOString(), // Set paidAt to current time
+        paidAt: new Date().toISOString(),
+        // Breakdown snapshot fields
+        attendanceDays: item.attendanceDays,
+        excusedDays: item.excusedDays,
+        alphaDays: item.alphaDays,
+        scheduledDays: item.scheduledDays,
+        totalDeduction: item.totalDeduction,
       };
 
       const res = await fetch("/api/payroll", {
@@ -257,7 +270,7 @@ export default function PayrollPage() {
     const headers = [
       "Nama",
       "Role",
-      "Jam Kerja",
+      "Hari Kerja",
       "Gaji Pokok",
       "Total Diterima",
       "Status",
@@ -300,7 +313,7 @@ export default function PayrollPage() {
             Rekap Gaji (Payroll)
           </h1>
           <p className="text-muted-foreground">
-            Rekapitulasi jam kerja dan perhitungan gaji karyawan
+            Rekapitulasi hari kerja dan perhitungan gaji karyawan
           </p>
         </div>
         <Button
@@ -333,20 +346,20 @@ export default function PayrollPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Total Jam Kerja
+              Total Hari Kerja
             </CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {payrollRecords.reduce((acc, p) => acc + p.hoursWorked, 0)} Jam
+              {payrollRecords.reduce((acc, p) => acc + p.hoursWorked, 0)} Hari
             </div>
             <p className="text-xs text-muted-foreground">
-              Total durasi kerja aktual
+              Total kehadiran aktual
             </p>
           </CardContent>
         </Card>
-        <Card>
+        {/* <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
               Trend Pengeluaran
@@ -357,7 +370,7 @@ export default function PayrollPage() {
             <div className="text-2xl font-bold">-</div>
             <p className="text-xs text-muted-foreground">Data belum tersedia</p>
           </CardContent>
-        </Card>
+        </Card> */}
       </div>
 
       <Card>
@@ -380,10 +393,10 @@ export default function PayrollPage() {
                 />
               </div>
               <Select value={monthFilter} onValueChange={setMonthFilter}>
-                <SelectTrigger className="w-[120px] h-9">
+                <SelectTrigger className="w-[150px] h-9">
                   <SelectValue placeholder="Bulan" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent position="popper">
                   {monthNames.map((m) => (
                     <SelectItem key={m} value={m}>
                       {m}
@@ -400,9 +413,10 @@ export default function PayrollPage() {
               <TableRow>
                 <TableHead>Karyawan</TableHead>
                 <TableHead>Tanggal</TableHead>
-                <TableHead className="text-center">Jam Kerja</TableHead>
+                <TableHead className="text-center">Hadir / Jadwal</TableHead>
+                <TableHead className="text-center">Absen</TableHead>
                 <TableHead>Gaji Pokok</TableHead>
-                {/* <TableHead>Total Jam (Rp)</TableHead> */}
+                <TableHead>Potongan</TableHead>
                 <TableHead className="text-right">Total Diterima</TableHead>
                 <TableHead className="text-center">Status</TableHead>
                 <TableHead className="text-right w-[50px]"></TableHead>
@@ -438,14 +452,33 @@ export default function PayrollPage() {
                       {formatDate(p.paidAt)}
                     </TableCell>
                     <TableCell className="text-center font-medium">
-                      {p.hoursWorked}h
+                      {p.attendanceDays ?? 0} / {p.scheduledDays ?? "-"}
+                    </TableCell>
+                    <TableCell className="text-center font-medium">
+                      <div className="flex flex-col gap-1 items-center">
+                        {(p.alphaDays || 0) > 0 && (
+                          <span className="text-red-600 text-xs">
+                            {p.alphaDays} Alpha
+                          </span>
+                        )}
+                        {(p.excusedDays || 0) > 0 && (
+                          <span className="text-yellow-600 text-xs">
+                            {p.excusedDays} Izin/Sakit
+                          </span>
+                        )}
+                        {(p.alphaDays || 0) === 0 &&
+                          (p.excusedDays || 0) === 0 &&
+                          "-"}
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm">
                       {formatCurrency(p.baseSalary)}
                     </TableCell>
-                    {/* <TableCell className="text-sm">
-                      {formatCurrency(p.totalHourly || 0)}
-                    </TableCell> */}
+                    <TableCell className="text-sm text-red-600">
+                      {(p.totalDeduction ?? 0) > 0
+                        ? `- ${formatCurrency(p.totalDeduction!)}`
+                        : "Rp 0"}
+                    </TableCell>
                     <TableCell className="text-right font-bold text-green-700">
                       {formatCurrency(p.totalSalary)}
                     </TableCell>

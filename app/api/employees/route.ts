@@ -36,14 +36,17 @@ export async function GET() {
           ? "Kasir"
           : e.role === "branch_admin"
             ? "Admin Cabang"
-            : "Super Admin",
+            : e.role === "super_admin"
+              ? "Super Admin"
+              : e.role, // Fallback to raw role name
       branch: e.branches?.name || "",
       branchId: e.branch_id,
       status: e.status,
       joinDate: e.join_date,
       baseSalary: Number(e.base_salary),
       hourlyRate: Number(e.hourly_rate),
-      pin: e.pin || "",
+      deductionAmount: Number(e.deduction_amount || 0),
+      pin: e.pin,
     }));
 
     return NextResponse.json(formatted);
@@ -56,28 +59,16 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, email, phone, role, branch, status, baseSalary, hourlyRate, pin } = body;
+    const { name, email, phone, role, branch, status, baseSalary, hourlyRate, deductionAmount, pin } = body;
 
-    // Map role to DB enum
+    // Map role to DB enum/string
     const roleMap: Record<string, string> = {
         "Kasir": "cashier",
         "Admin Cabang": "branch_admin",
         "Super Admin": "super_admin"
+        // New roles will be stored as their actual names from the roles table
     };
 
-    // Get Branch ID if branch name is provided (or if branchId is not provided)
-    // The frontend might send branch name or ID. Let's assume it sends branch name for now based on current UI, 
-    // but best practice is to send ID. 
-    // Looking at the Karyawan Page, it has access to branches list.
-    // I'll assume the frontend will be refactored to send `branchId` directly if available, 
-    // but if it sends name, I might need to lookup. 
-    // Actually, in the frontend refactor, I will make sure to send `branchId`.
-    // But for safety let's handle the `branch` (name) lookup if `branchId` is missing, 
-    // OR just expect `branchId` from the frontend refactor.
-    
-    // Let's rely on the frontend sending the correct `branch_id`.
-    // Wait, the current frontend sends `branch` name. I should update frontend to use `branchId`.
-    
     let branchId = body.branchId;
     if (!branchId && branch) {
        const { data: bData } = await supabase.from("branches").select("id").eq("name", branch).single();
@@ -90,13 +81,14 @@ export async function POST(request: Request) {
         name,
         email,
         phone,
-        role: roleMap[role] || "cashier",
+        role: roleMap[role] || role, // Use map or raw role name (for new roles)
         branch_id: branchId,
         status,
         join_date: new Date().toISOString().split('T')[0], // Today
         base_salary: baseSalary,
         hourly_rate: hourlyRate,
-        pin
+        deduction_amount: deductionAmount || 0,
+        pin: pin ? String(pin) : null
       }])
       .select()
       .single();
@@ -113,7 +105,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
     try {
         const body = await request.json();
-        const { id, name, email, phone, role, branch, status, baseSalary, hourlyRate, pin } = body;
+        const { id, name, email, phone, role, branch, status, baseSalary, hourlyRate, deductionAmount, pin } = body;
 
         const roleMap: Record<string, string> = {
             "Kasir": "cashier",
@@ -127,19 +119,26 @@ export async function PUT(request: Request) {
            if(bData) branchId = bData.id;
         }
 
+        const updateData: any = {
+            name,
+            email,
+            phone,
+            role: roleMap[role] || role, // Use map or raw role name (for new roles)
+            branch_id: branchId,
+            status,
+            base_salary: baseSalary,
+            hourly_rate: hourlyRate,
+            deduction_amount: deductionAmount || 0,
+        };
+
+        // Only update PIN if it's provided and not the placeholder
+        if (pin && pin !== "****") {
+            updateData.pin = String(pin);
+        }
+
         const { error } = await supabase
             .from("employees")
-            .update({
-                name,
-                email,
-                phone,
-                role: roleMap[role] || "cashier",
-                branch_id: branchId,
-                status,
-                base_salary: baseSalary,
-                hourly_rate: hourlyRate,
-                pin
-            })
+            .update(updateData)
             .eq("id", id);
 
         if (error) throw error;

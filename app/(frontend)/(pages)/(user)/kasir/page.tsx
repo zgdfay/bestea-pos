@@ -259,6 +259,8 @@ function KasirContent() {
       description: description,
       amount: amount,
       recordedBy: activeEmployee?.name || "Kasir",
+      employeeId: activeEmployee?.id,
+      shiftSessionId: shiftData?.sessionId,
     });
   };
 
@@ -373,6 +375,7 @@ function KasirContent() {
       amountPaid: amountPaid,
       changeAmount: amountPaid - totalPrice,
       status: "completed" as const,
+      shiftSessionId: shiftData?.sessionId,
       items: transactionItems,
     };
 
@@ -459,11 +462,7 @@ function KasirContent() {
     );
   }
 
-  // Calculate generic categories if none provided
-  const displayCategories =
-    categories.length > 0
-      ? categories
-      : [{ id: "all", name: "Semua Kategori", productCount: 0 }];
+  const displayCategories = categories;
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50 rounded-lg border border-slate-200 relative">

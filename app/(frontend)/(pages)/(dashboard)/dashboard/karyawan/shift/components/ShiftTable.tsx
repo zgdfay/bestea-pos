@@ -18,20 +18,30 @@ interface ShiftTableProps {
   onCellClick: (empId: string, dayIdx: number) => void;
 }
 
-// Helper to calculate total hours from shifts
-const SHIFT_HOURS: Record<string, number> = {
-  Pagi: 7, // 08:00 - 15:00 = 7 hours
-  Sore: 7, // 15:00 - 22:00 = 7 hours
-  Office: 8, // 09:00 - 17:00 = 8 hours
-  Libur: 0,
-};
-
+// Helper to calculate weekly hours dynamically from shift times
 const calculateWeeklyHours = (
   shifts: { type: string; time: string }[],
 ): number => {
   if (!shifts) return 0;
+
   return shifts.reduce((total, shift) => {
-    return total + (SHIFT_HOURS[shift.type] || 0);
+    if (shift.type === "Libur" || shift.time === "-") return total;
+
+    try {
+      const [startPart, endPart] = shift.time.split(" - ");
+      if (!startPart || !endPart) return total;
+
+      const [startH, startM] = startPart.split(":").map(Number);
+      const [endH, endM] = endPart.split(":").map(Number);
+
+      let diffMins = endH * 60 + endM - (startH * 60 + startM);
+      if (diffMins < 0) diffMins += 24 * 60; // Midnight crossing
+
+      return total + diffMins / 60;
+    } catch (e) {
+      console.error("Error calculating duration:", e);
+      return total;
+    }
   }, 0);
 };
 
@@ -57,45 +67,58 @@ export function ShiftTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {employees.map((emp) => (
-            <TableRow key={emp.id}>
-              <TableCell className="font-medium">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback className="bg-slate-200 text-slate-700 text-xs">
-                      {emp.name
-                        .split(" ")
-                        .map((n: string) => n[0])
-                        .join("")
-                        .toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-semibold text-sm">{emp.name}</p>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                      {emp.role}
-                    </p>
-                  </div>
-                </div>
-              </TableCell>
-              {employeeShifts[emp.id]?.map((shift, idx) => (
-                <TableCell key={idx} className="text-center p-2">
-                  <div
-                    onClick={() => onCellClick(emp.id, idx)}
-                    className={`flex flex-col gap-0.5 py-1.5 rounded-md border text-center cursor-pointer hover:ring-2 hover:ring-primary/20 transition-all ${shiftColors[shift.type] || shiftColors["Libur"]}`}
-                  >
-                    <span className="text-[10px] font-bold uppercase">
-                      {shift.type}
-                    </span>
-                    <span className="text-[9px] opacity-70">{shift.time}</span>
-                  </div>
-                </TableCell>
-              ))}
-              <TableCell className="text-right text-xs font-semibold">
-                {calculateWeeklyHours(employeeShifts[emp.id])}h
+          {employees.length === 0 ? (
+            <TableRow>
+              <TableCell
+                colSpan={days.length + 2}
+                className="h-24 text-center text-muted-foreground"
+              >
+                Belum ada karyawan. Tambahkan karyawan terlebih dahulu.
               </TableCell>
             </TableRow>
-          ))}
+          ) : (
+            employees.map((emp) => (
+              <TableRow key={emp.id}>
+                <TableCell className="font-medium">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback className="bg-slate-200 text-slate-700 text-xs">
+                        {emp.name
+                          .split(" ")
+                          .map((n: string) => n[0])
+                          .join("")
+                          .toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-semibold text-sm">{emp.name}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        {emp.role}
+                      </p>
+                    </div>
+                  </div>
+                </TableCell>
+                {employeeShifts[emp.id]?.map((shift, idx) => (
+                  <TableCell key={idx} className="text-center p-2">
+                    <div
+                      onClick={() => onCellClick(emp.id, idx)}
+                      className={`flex flex-col gap-0.5 py-1.5 rounded-md border text-center cursor-pointer hover:ring-2 hover:ring-primary/20 transition-all ${shiftColors[shift.type] || shiftColors["Libur"]}`}
+                    >
+                      <span className="text-[10px] font-bold uppercase">
+                        {shift.type}
+                      </span>
+                      <span className="text-[9px] opacity-70">
+                        {shift.time}
+                      </span>
+                    </div>
+                  </TableCell>
+                ))}
+                <TableCell className="text-right text-xs font-semibold">
+                  {calculateWeeklyHours(employeeShifts[emp.id])}h
+                </TableCell>
+              </TableRow>
+            ))
+          )}
         </TableBody>
       </Table>
     </div>

@@ -89,7 +89,7 @@ export async function GET(request: Request) {
     // 2. Fetch Expenses
     let expQuery = supabase
       .from("expenses")
-      .select("*")
+      .select("*, employee:recorded_by(name)")
       .gte("created_at", start.toISOString())
       .lte("created_at", end.toISOString())
       .order("created_at", { ascending: false });

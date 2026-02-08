@@ -36,58 +36,66 @@ const SHIFT_TIMES = {
 
 const LATE_TOLERANCE_MINUTES = 15; // 15 minutes tolerance
 
-// Helper to check if employee is late
-const isLate = (shift: "Pagi" | "Sore"): boolean => {
+// Helper to check if employee is late based on scheduled start time
+const isLate = (scheduleStartTime: string): boolean => {
+  if (!scheduleStartTime) return false;
+
   const now = new Date();
-  const currentHour = now.getHours();
-  const currentMinutes = now.getMinutes();
-  const shiftStart = SHIFT_TIMES[shift].start;
+  const [schedHour, schedMinute] = scheduleStartTime.split(":").map(Number);
 
-  // Compare: if current time > shift start + tolerance
-  const totalMinutesNow = currentHour * 60 + currentMinutes;
-  const shiftStartMinutes = shiftStart * 60 + LATE_TOLERANCE_MINUTES;
+  const shiftStart = new Date(now);
+  shiftStart.setHours(schedHour, schedMinute, 0, 0);
 
-  return totalMinutesNow > shiftStartMinutes;
+  // Add tolerance
+  const lateThreshold = new Date(
+    shiftStart.getTime() + LATE_TOLERANCE_MINUTES * 60000,
+  );
+
+  return now > lateThreshold;
 };
 
-// Helper to get current shift based on time
-const getCurrentShift = (): "Pagi" | "Sore" => {
-  const hour = new Date().getHours();
-  // Before 15:00 = Pagi, 15:00 or after = Sore
-  return hour < 15 ? "Pagi" : "Sore";
-};
+// ... (getCurrentShift helper removed as we use actual schedule) ...
 
 // Helper to get local date string YYYY-MM-DD
 const getLocalYYYYMMDD = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  const d = new Date(date);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().split("T")[0];
 };
 
-// Helper to get Monday of the current week in YYYY-MM-DD format (Local Time)
-const getWeekStart = (): string => {
-  const today = new Date();
-  const day = today.getDay(); // 0 (Sun) to 6 (Sat)
-  const diff = day === 0 ? -6 : 1 - day; // Days to Monday
-  const monday = new Date(today);
-  monday.setDate(today.getDate() + diff);
-  return getLocalYYYYMMDD(monday);
-};
-
-// Helper to get day index (0 = Monday, 6 = Sunday)
+// Helper to get day index (0=Monday, 6=Sunday)
 const getDayIndex = (): number => {
-  const day = new Date().getDay(); // 0 (Sun) to 6 (Sat)
-  return day === 0 ? 6 : day - 1; // Convert to 0 = Monday
+  const day = new Date().getDay(); // 0 is Sunday, 1 is Monday in JS
+  return day === 0 ? 6 : day - 1; // Convert to 0=Monday, ..., 6=Sunday
+};
+
+// Helper to get week start date (Monday)
+const getWeekStart = (): string => {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+  const monday = new Date(d.setDate(diff));
+  return getLocalYYYYMMDD(monday);
 };
 
 // Check if employee has a schedule for today
 const checkEmployeeSchedule = async (
   employeeId: string,
-): Promise<{ hasSchedule: boolean; shiftType: string | null }> => {
+): Promise<{
+  hasSchedule: boolean;
+  shiftType: string | null;
+  startTime: string | null;
+  endTime: string | null;
+}> => {
   try {
     const weekStart = getWeekStart();
     const dayIndex = getDayIndex();
+
+    console.log("[ShiftModal] Checking schedule...", {
+      weekStart,
+      dayIndex,
+      employeeId,
+    });
 
     // Add cache: 'no-store' to prevent caching
     const response = await fetch(
@@ -96,30 +104,43 @@ const checkEmployeeSchedule = async (
     );
 
     if (!response.ok) {
+      console.error("[ShiftModal] Failed to fetch schedule");
       throw new Error("Failed to fetch schedule");
     }
 
     const schedules = await response.json();
-    console.log("Debug Schedule Check:", { weekStart, dayIndex, schedules });
+    console.log("[ShiftModal] Schedules fetched:", schedules);
 
     // Find today's schedule
     const todaySchedule = schedules.find(
       (s: any) => s.day_of_week === dayIndex,
     );
-
-    console.log("Today Schedule Found:", todaySchedule);
+    console.log("[ShiftModal] Today's schedule match:", todaySchedule);
 
     if (!todaySchedule || todaySchedule.shift_type === "Libur") {
+      console.log("[ShiftModal] No schedule matches or Libur");
       return {
         hasSchedule: false,
         shiftType: todaySchedule?.shift_type || null,
+        startTime: null,
+        endTime: null,
       };
     }
 
-    return { hasSchedule: true, shiftType: todaySchedule.shift_type };
+    return {
+      hasSchedule: true,
+      shiftType: todaySchedule.shift_type,
+      startTime: todaySchedule.start_time,
+      endTime: todaySchedule.end_time,
+    };
   } catch (error) {
     console.error("Error checking schedule:", error);
-    return { hasSchedule: false, shiftType: null };
+    return {
+      hasSchedule: false,
+      shiftType: null,
+      startTime: null,
+      endTime: null,
+    };
   }
 };
 
@@ -216,6 +237,7 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
   };
 
   const handleSubmit = async () => {
+    console.log("Submitting shift form...");
     const value = parseNumber(amount);
 
     if (value < 0) {
@@ -246,7 +268,7 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
       const todayName = dayNames[getDayIndex()];
 
       toast.loading("Memeriksa jadwal...", { id: "check-schedule" });
-      const { hasSchedule, shiftType } = await checkEmployeeSchedule(
+      const { hasSchedule, shiftType, startTime } = await checkEmployeeSchedule(
         pendingEmployee.id,
       );
       toast.dismiss("check-schedule");
@@ -260,16 +282,12 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
         toast.error("Tidak Dapat Membuka Shift", {
           description:
             message + " Silakan hubungi Admin untuk mengatur jadwal.",
-          duration: 3000,
+          duration: 4000,
         });
 
-        // Redirect to login after short delay
         setTimeout(() => {
-          // Reset context/state if needed or just redirect
-          // We can use the context's logout if available, or just push to login
-          // Using window.location to force full reload/clear state is safer for lockouts
-          window.location.href = "/";
-        }, 1500);
+          window.location.href = "/login";
+        }, 3000);
 
         return;
       }
@@ -281,8 +299,13 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
           description: `${pendingEmployee.name} sudah melakukan absensi masuk hari ini.`,
           duration: 5000,
         });
-        // Still allow opening shift, just skip clock-in
-        openShift(value, pendingEmployee);
+        const branchIdToUse = currentBranch?.id || pendingEmployee.branchId;
+        if (!branchIdToUse) {
+          toast.error("Gagal membuka shift: Data cabang tidak ditemukan");
+          return;
+        }
+
+        openShift(value, pendingEmployee, branchIdToUse);
         toast.success("Shift berhasil dibuka!", {
           description: `${pendingEmployee.name} - (Absensi sudah tercatat sebelumnya)`,
           duration: 5000,
@@ -291,19 +314,28 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
         return;
       }
 
-      openShift(value, pendingEmployee);
+      const branchIdToUse = currentBranch?.id || pendingEmployee.branchId;
+      console.log("[ShiftModal] Opening shift with branchId:", branchIdToUse);
+
+      if (!branchIdToUse) {
+        toast.error("Gagal membuka shift: Data cabang tidak ditemukan");
+        return;
+      }
+
+      await openShift(value, pendingEmployee, branchIdToUse);
 
       // Auto Clock In with late detection
       if (currentBranch) {
-        const shift = getCurrentShift();
-        const lateStatus = isLate(shift);
+        const shift = shiftType || "Shift"; // Use actual shift type from schedule
+        // Use startTime from schedule for late check
+        const lateStatus = startTime ? isLate(startTime) : false;
         const status = lateStatus ? "Terlambat" : "Hadir";
 
         clockIn(pendingEmployee.id, currentBranch.id, shift, status)
           .then(() => {
             if (lateStatus) {
               toast.warning("Absensi Masuk - TERLAMBAT", {
-                description: `Shift ${shift} dimulai jam ${SHIFT_TIMES[shift].start}:00. Toleransi ${LATE_TOLERANCE_MINUTES} menit.`,
+                description: `Shift ${shift} dimulai jam ${startTime?.slice(0, 5)}. Toleransi ${LATE_TOLERANCE_MINUTES} menit.`,
                 duration: 6000,
               });
             } else {
@@ -328,7 +360,10 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
     }
   };
 
-  const handleCloseShiftPinSuccess = (employee: {
+  const [isEarlyClosing, setIsEarlyClosing] = useState(false);
+  const [scheduledEndTime, setScheduledEndTime] = useState<string | null>(null);
+
+  const handleCloseShiftPinSuccess = async (employee: {
     id: string;
     name: string;
     role: string;
@@ -337,201 +372,85 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
     console.log("[CloseShift] PIN verified for:", employee.name);
     setPendingEmployee(employee);
     setShowPinModal(false);
+
+    // Check for early closure
+    toast.loading("Memeriksa jadwal...", { id: "check-schedule-close" });
+    const { hasSchedule, endTime } = await checkEmployeeSchedule(employee.id);
+    toast.dismiss("check-schedule-close");
+
+    if (hasSchedule && endTime) {
+      const now = new Date();
+      const [endHour, endMinute] = endTime.split(":").map(Number);
+      const shiftEnd = new Date(now);
+      shiftEnd.setHours(endHour, endMinute, 0, 0);
+
+      // tolerance: consider early if > 30 mins before end time
+      // difference in milliseconds
+      const diff = shiftEnd.getTime() - now.getTime();
+      const diffMinutes = Math.floor(diff / 60000);
+
+      if (diffMinutes > 30) {
+        setIsEarlyClosing(true);
+        setScheduledEndTime(endTime.slice(0, 5));
+      } else {
+        setIsEarlyClosing(false);
+        setScheduledEndTime(null);
+      }
+    } else {
+      setIsEarlyClosing(false);
+    }
+
     setShowConfirm(true);
     console.log("[CloseShift] showConfirm set to true");
   };
 
-  const handleConfirmClosure = () => {
+  const handleConfirmClosure = async () => {
     const value = parseNumber(amount);
-    const expected = shiftData.expectedCash;
-    const discrepancy = value - expected;
-
     if (!pendingEmployee) return;
 
-    closeShift(value, pendingEmployee, notes);
+    try {
+      toast.loading("Menutup shift...", { id: "close-shift" });
+      await closeShift(value, pendingEmployee, notes);
 
-    // Auto Clock Out - clock out the employee who OPENED the shift
-    const employeeToClockOut = shiftData.openedBy?.id || pendingEmployee.id;
-    clockOut(employeeToClockOut)
-      .then(() => {
-        toast.success("Absensi Pulang Berhasil");
-      })
-      .catch((err) => {
-        console.error("Auto clock-out failed", err);
-        // Don't show error if no clock-in record - just log it
-        console.log("Clock out skipped - no clock-in record found");
+      // Auto Clock Out - Pass status if early
+      const clockOutStatus = isEarlyClosing ? "Hadir (Pulang Awal)" : undefined;
+      await clockOut(pendingEmployee.id, clockOutStatus);
+
+      toast.dismiss("close-shift");
+      toast.success("Shift Berhasil Ditutup", {
+        description: "Laporan shift telah disimpan.",
       });
 
-    setSummary({
-      actual: value,
-      expected: expected,
-      discrepancy: discrepancy,
-      closedBy: pendingEmployee.name,
-    });
-    setShowConfirm(false);
+      setShowConfirm(false);
+      onOpenChange(false);
 
-    const now = new Date();
-    toast.success("Shift berhasil ditutup!", {
-      description: `${pendingEmployee.name} - Absen Pulang: ${now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}`,
-      duration: 5000,
-    });
+      // Force refresh data
+      router.refresh();
+    } catch (err: any) {
+      toast.dismiss("close-shift");
+      toast.error("Gagal menutup shift", {
+        description: err.message || "Terjadi kesalahan pada server",
+      });
+    }
   };
-
-  const formatter = new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    minimumFractionDigits: 0,
-  });
-
-  if (summary) {
-    return (
-      <Dialog
-        open={true}
-        onOpenChange={(open) => {
-          if (!open) onOpenChange(false);
-        }}
-      >
-        <DialogContent className="sm:max-w-md [&>button]:hidden">
-          <DialogHeader>
-            <DialogTitle>Laporan Penutupan Kasir</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {summary.closedBy && (
-              <div className="flex items-center gap-2 text-sm text-slate-600 bg-slate-50 rounded-lg p-3">
-                <User className="h-4 w-4" />
-                <span>
-                  Ditutup oleh: <strong>{summary.closedBy}</strong>
-                </span>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="text-slate-500">Uang Tunai Awal (Modal)</div>
-              <div className="font-medium text-right">
-                {formatter.format(shiftData.initialCash)}
-              </div>
-
-              <div className="text-slate-500">Total Penjualan Tunai</div>
-              <div className="font-medium text-right text-green-600">
-                +{formatter.format(shiftData.totalCashTransactions)}
-              </div>
-
-              <div className="text-slate-500">Total Pengeluaran</div>
-              <div className="font-medium text-right text-red-600">
-                -{formatter.format(shiftData.totalExpenses || 0)}
-              </div>
-
-              <div className="text-slate-500 font-bold border-t pt-2">
-                Seharusnya di Laci
-              </div>
-              <div className="font-bold text-right border-t pt-2">
-                {formatter.format(summary.expected)}
-              </div>
-
-              <div className="text-slate-500 font-bold">Aktual di Laci</div>
-              <div className="font-bold text-right text-blue-600">
-                {formatter.format(summary.actual)}
-              </div>
-            </div>
-
-            <div
-              className={`p-4 rounded-lg border ${summary.discrepancy === 0 ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <AlertTriangle
-                  className={`h-4 w-4 ${summary.discrepancy === 0 ? "text-green-600" : "text-red-600"}`}
-                />
-                <span
-                  className={`font-bold ${summary.discrepancy === 0 ? "text-green-700" : "text-red-700"}`}
-                >
-                  {summary.discrepancy === 0
-                    ? "Balance (Seimbang)"
-                    : "Selisih (Discrepancy)"}
-                </span>
-              </div>
-              <p
-                className={`text-xl font-black ${summary.discrepancy === 0 ? "text-green-700" : "text-red-700"}`}
-              >
-                {summary.discrepancy > 0 ? "+" : ""}
-                {formatter.format(summary.discrepancy)}
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={() => {
-                onOpenChange(false);
-                router.push("/login");
-              }}
-              className="w-full bg-green-600 hover:bg-green-700 text-white"
-            >
-              Log Out & Selesai
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-  }
 
   return (
     <>
-      {/* PIN Entry Modal */}
-      <PinEntryModal
-        isOpen={showPinModal}
-        onOpenChange={(open) => {
-          setShowPinModal(open);
-          if (!open && mode === "open" && !pendingEmployee) {
-            // If PIN modal closed without employee in open mode, close the whole modal
-            onOpenChange(false);
-          }
-        }}
-        onSuccess={
-          mode === "open" ? handlePinSuccess : handleCloseShiftPinSuccess
-        }
-        branchName={shiftData.branchName}
-        title={mode === "open" ? "Verifikasi Karyawan" : "Konfirmasi PIN"}
-        description={
-          mode === "open"
-            ? "Masukkan PIN untuk memulai shift"
-            : "Masukkan PIN untuk menutup shift"
-        }
-      />
-
-      <Dialog
-        open={isOpen && step === "amount"}
-        onOpenChange={(open) => {
-          if (mode === "open" && !open) return;
-          onOpenChange(open);
-        }}
-      >
-        <DialogContent
-          className={`sm:max-w-md ${mode === "open" ? "[&>button]:hidden" : ""}`}
-          onOpenAutoFocus={(e) => e.preventDefault()}
-        >
+      <Dialog open={isOpen} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <Banknote className="h-10 w-10 text-green-600 mx-auto mb-2" />
-            <DialogTitle className="text-center text-xl">
-              {mode === "open" ? "Buka Kasir" : "Tutup Kasir"}
+            <DialogTitle className="flex items-center gap-2">
+              <Banknote className="h-5 w-5 text-green-600" />
+              {mode === "open" ? "Mulai Shift Baru" : "Tutup Sesi Kasir"}
             </DialogTitle>
-            {pendingEmployee && mode === "open" && (
-              <div className="flex items-center justify-center gap-2 text-sm text-green-600 bg-green-50 rounded-lg p-2 mt-2">
-                <User className="h-4 w-4" />
-                <span>
-                  Kasir: <strong>{pendingEmployee.name}</strong>
-                </span>
-              </div>
-            )}
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-slate-500 text-center">
-              {mode === "open"
-                ? "Masukkan jumlah uang modal awal yang ada di laci kasir."
-                : "Hitung dan masukkan total uang tunai yang ada di laci saat ini."}
-            </p>
-
-            <div className="space-y-2">
-              <Label htmlFor="amount" className="font-bold text-slate-700">
-                {mode === "open" ? "Modal Awal" : "Total Uang di Laci"}
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="amount" className="text-slate-600">
+                {mode === "open"
+                  ? "Modal Awal (Cash in Drawer)"
+                  : "Uang Fisik di Laci"}
               </Label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">
@@ -539,26 +458,44 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
                 </span>
                 <Input
                   id="amount"
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="0"
-                  className="pl-10 h-12 text-lg font-bold"
                   value={amount}
                   onChange={handleAmountChange}
+                  className="pl-10 h-12 text-xl font-bold border-slate-200 focus:border-green-500 focus:ring-green-500"
+                  placeholder="0"
+                  autoFocus
                 />
               </div>
-              {error && (
-                <p className="text-sm text-red-500 font-medium">{error}</p>
-              )}
             </div>
+
+            {mode === "close" && (
+              <div className="grid gap-2">
+                <Label htmlFor="notes" className="text-slate-600">
+                  Catatan Tambahan
+                </Label>
+                <Input
+                  id="notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Contoh: Selisih uang parkir, dll..."
+                  className="focus:border-orange-500 focus:ring-orange-500"
+                />
+              </div>
+            )}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button
-              onClick={handleSubmit}
-              className="w-full h-12 text-lg font-bold bg-green-600 hover:bg-green-700 text-white"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="flex-1"
             >
-              {mode === "open" ? "Buka Shift" : "Tutup Shift"}
+              Batal
+            </Button>
+            <Button
+              className={`flex-1 ${mode === "open" ? "bg-green-600 hover:bg-green-700 shadow-green-100" : "bg-orange-600 hover:bg-orange-700 shadow-orange-100"} shadow-lg text-white font-semibold`}
+              onClick={handleSubmit}
+            >
+              {mode === "open" ? "Buka Kasir" : "Lanjut Tutup"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -567,19 +504,40 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
       <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Konfirmasi Tutup Shift</AlertDialogTitle>
-            <AlertDialogDescription>
-              Apakah Anda yakin jumlah uang di laci sudah benar? Data ini akan
-              dicatat dan shift akan segera ditutup.
+            <AlertDialogTitle
+              className={
+                isEarlyClosing ? "text-amber-600 flex items-center gap-2" : ""
+              }
+            >
+              {isEarlyClosing && <AlertTriangle className="h-5 w-5" />}
+              {isEarlyClosing
+                ? "Peringatan: Pulang Awal"
+                : "Konfirmasi Tutup Shift"}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                Apakah Anda yakin jumlah uang di laci sudah benar? Data ini akan
+                dicatat dan shift akan segera ditutup.
+              </p>
+              {isEarlyClosing && (
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-amber-800 text-sm font-medium mt-3">
+                  Shift ini seharusnya berakhir pukul {scheduledEndTime}. Anda
+                  menutup shift lebih awal dari jadwal.
+                </div>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-green-600 hover:bg-green-700 text-white"
+              className={
+                isEarlyClosing
+                  ? "bg-amber-600 hover:bg-amber-700 text-white"
+                  : "bg-green-600 hover:bg-green-700 text-white"
+              }
               onClick={handleConfirmClosure}
             >
-              Ya, Sudah Benar
+              {isEarlyClosing ? "Ya, Tetap Tutup" : "Ya, Sudah Benar"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

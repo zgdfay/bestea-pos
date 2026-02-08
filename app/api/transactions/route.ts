@@ -32,6 +32,7 @@ export async function POST(request: Request) {
         amount_paid: transaction.amountPaid,
         change_amount: transaction.changeAmount,
         status: transaction.status || "completed",
+        shift_session_id: transaction.shiftSessionId,
       })
       .select()
       .single();

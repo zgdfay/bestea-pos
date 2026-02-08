@@ -13,7 +13,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { CalendarIcon, Download, Plus, Search } from "lucide-react";
+import { CalendarIcon, Download, Plus, Search, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -230,7 +230,7 @@ export default function AdminAbsensiPage() {
         body: JSON.stringify({
           employeeId: emp.id,
           branchId: emp.branch_id || currentBranch?.id || "",
-          date: startDate.toISOString().split("T")[0], // API ignores date in POST and uses Today, needs fix in API if manual input is for past dates?
+          date: format(startDate, "yyyy-MM-dd"), // Use local date, not UTC to avoid off-by-one errors
           // Wait, Phase 4 plan didn't specify back-dating manual input fully, simplified MVP uses Today for POST.
           // FIX: API POST uses Today. If we need manual input for past dates, API needs update.
           // For now, let's assume manual input is for "Today" or we just update API later.
@@ -240,7 +240,7 @@ export default function AdminAbsensiPage() {
           status: statusMapped,
           shift: "Pagi", // Default
           notes: reason,
-          checkInTime: statusMapped === "Hadir" ? "08:00" : "-",
+          checkInTime: statusMapped === "Hadir" ? "08:00" : null,
         }),
       });
 
@@ -255,6 +255,26 @@ export default function AdminAbsensiPage() {
       } else {
         const err = await res.json();
         toast.error(err.error || "Gagal mencatat absensi");
+      }
+    } catch (e) {
+      toast.error("Terjadi kesalahan sistem");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Apakah Anda yakin ingin menghapus data absensi ini?")) return;
+
+    try {
+      const res = await fetch(`/api/attendance?id=${id}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        toast.success("Data absensi berhasil dihapus");
+        fetchData();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Gagal menghapus data");
       }
     } catch (e) {
       toast.error("Terjadi kesalahan sistem");
@@ -534,24 +554,36 @@ export default function AdminAbsensiPage() {
                       {formatTime(item.checkOut)}
                     </TableCell>
                     <TableCell className="text-center">
-                      {!item.isPresent ? (
-                        <Badge
-                          variant="outline"
-                          className="w-24 justify-center bg-slate-100 text-slate-500 border-dashed"
-                        >
-                          Belum Hadir
-                        </Badge>
-                      ) : (
-                        <Badge
-                          variant="outline"
-                          className={`w-24 justify-center ${
-                            statusConfig[item.status]?.className ||
-                            "bg-slate-100"
-                          }`}
-                        >
-                          {statusConfig[item.status]?.label || item.status}
-                        </Badge>
-                      )}
+                      <div className="flex items-center justify-center gap-2">
+                        {!item.isPresent ? (
+                          <Badge
+                            variant="outline"
+                            className="w-24 justify-center bg-slate-100 text-slate-500 border-dashed"
+                          >
+                            Belum Hadir
+                          </Badge>
+                        ) : (
+                          <>
+                            <Badge
+                              variant="outline"
+                              className={`w-24 justify-center ${
+                                statusConfig[item.status]?.className ||
+                                "bg-slate-100"
+                              }`}
+                            >
+                              {statusConfig[item.status]?.label || item.status}
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => handleDelete(item.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

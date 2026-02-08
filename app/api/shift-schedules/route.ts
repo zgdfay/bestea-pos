@@ -44,7 +44,11 @@ export async function GET(request: NextRequest) {
       query = query.eq("employee_id", employeeId);
     }
 
+    console.log("[API Shift] Fetching schedules with params:", { weekStart, branchId, employeeId });
+
     const { data, error } = await query;
+    
+    console.log("[API Shift] Found rows:", data?.length, data);
 
     if (error) throw error;
 

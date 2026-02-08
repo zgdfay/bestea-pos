@@ -40,6 +40,7 @@ export interface Transaction {
   amountPaid?: number;
   changeAmount?: number;
   status: "completed" | "void" | "pending";
+  shiftSessionId?: string;
 }
 
 export interface Expense {
@@ -51,6 +52,8 @@ export interface Expense {
   description: string;
   amount: number;
   recordedBy: string;
+  employeeId?: string;
+  shiftSessionId?: string;
 }
 
 interface TransactionContextType {
@@ -121,6 +124,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
           t: DBTransaction & {
             branches?: { name: string };
             transaction_items?: DBTransactionItem[];
+            shift_session_id?: string;
           },
         ) => ({
           id: t.id,
@@ -135,6 +139,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
           amountPaid: t.amount_paid ? Number(t.amount_paid) : undefined,
           changeAmount: t.change_amount ? Number(t.change_amount) : undefined,
           status: t.status as "completed" | "void" | "pending",
+          shiftSessionId: t.shift_session_id,
           items: (t.transaction_items || []).map((item) => ({
             productId: item.product_id || "",
             productName: item.product_name,
@@ -169,7 +174,12 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
       if (error) throw error;
 
       const formattedExpenses: Expense[] = (data || []).map(
-        (e: DBExpense & { branches?: { name: string } }) => ({
+        (
+          e: DBExpense & {
+            branches?: { name: string };
+            shift_session_id?: string;
+          },
+        ) => ({
           id: e.id,
           date: e.created_at,
           branchId: e.branch_id,
@@ -178,6 +188,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
           description: e.description,
           amount: Number(e.amount),
           recordedBy: e.recorded_by_name || "",
+          shiftSessionId: e.shift_session_id,
         }),
       );
 
@@ -251,6 +262,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
               amountPaid: trxData.amountPaid,
               changeAmount: trxData.changeAmount,
               status: trxData.status || "completed",
+              shiftSessionId: trxData.shiftSessionId,
             },
             items: items.map((item) => ({
               productId: item.productId,
@@ -304,7 +316,9 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
         category: expData.category,
         description: expData.description,
         amount: expData.amount,
-        recorded_by_name: expData.recordedBy,
+        recorded_by: expData.employeeId, // Use UUID for relation
+        recorded_by_name: expData.recordedBy, // Keep name for legacy/display
+        shift_session_id: expData.shiftSessionId,
       });
 
       if (error) throw error;

@@ -31,18 +31,39 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 
 export default function RolePage() {
-  const [roles, setRoles] = useState(initialRoles);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<any>(null);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
     perms: [] as string[],
+    color: "bg-slate-100 text-slate-700 border-slate-200",
   });
+
+  const fetchRoles = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/roles");
+      if (res.ok) {
+        const data = await res.json();
+        setRoles(data);
+      }
+    } catch (error) {
+      toast.error("Gagal mengambil data role");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRoles();
+  }, [fetchRoles]);
 
   const handleOpenModal = (role: any = null) => {
     if (role) {
@@ -50,7 +71,8 @@ export default function RolePage() {
       setFormData({
         name: role.name,
         description: role.description,
-        perms: role.perms,
+        perms: role.perms || [],
+        color: role.color || "bg-slate-100 text-slate-700 border-slate-200",
       });
     } else {
       setEditingRole(null);
@@ -58,33 +80,38 @@ export default function RolePage() {
         name: "",
         description: "",
         perms: [],
+        color: "bg-slate-100 text-slate-700 border-slate-200",
       });
     }
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name) {
       toast.error("Nama role harus diisi");
       return;
     }
 
-    if (editingRole) {
-      setRoles(
-        roles.map((r) => (r.id === editingRole.id ? { ...r, ...formData } : r)),
+    try {
+      const method = editingRole ? "PUT" : "POST";
+      const body = editingRole ? { ...formData, id: editingRole.id } : formData;
+
+      const res = await fetch("/api/roles", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) throw new Error("Gagal menyimpan role");
+
+      toast.success(
+        editingRole ? "Role berhasil diperbarui" : "Role baru ditambahkan",
       );
-      toast.success("Role berhasil diperbarui");
-    } else {
-      const newRole = {
-        id: `role_${Date.now()}`,
-        ...formData,
-        users: 0,
-        color: "bg-slate-100 text-slate-700 border-slate-200",
-      };
-      setRoles([...roles, newRole]);
-      toast.success("Role baru berhasil ditambahkan");
+      setIsModalOpen(false);
+      fetchRoles();
+    } catch (error) {
+      toast.error("Gagal menyimpan data role");
     }
-    setIsModalOpen(false);
   };
 
   const togglePermission = (permId: string) => {

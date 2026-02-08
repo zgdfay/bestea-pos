@@ -27,6 +27,7 @@ export interface Employee {
   branch: string;
   email?: string;
   pin?: string;
+  branchId?: string;
 }
 
 interface BranchContextType {
@@ -67,7 +68,7 @@ interface BranchContextType {
     shift?: string,
     status?: string,
   ) => Promise<any>;
-  clockOut: (employeeId: string) => Promise<any>;
+  clockOut: (employeeId: string, status?: string) => Promise<any>;
   // Employee Management
   employees: Employee[];
   refreshEmployees: () => Promise<void>;
@@ -88,6 +89,7 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = React.useState(true);
 
   React.useEffect(() => {
+    // 1. Restore Active Employee (for display)
     const storedEmp = localStorage.getItem("bestea-active-employee");
     if (storedEmp) {
       try {
@@ -96,7 +98,40 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
         console.error("Failed to parse active employee", e);
       }
     }
+
+    // 2. Restore Session (Role & Branch for sidebar/auth)
+    const storedSession = localStorage.getItem(AUTH_KEY);
+    if (storedSession) {
+      try {
+        const session = JSON.parse(storedSession);
+        if (session.role) setUserRole(session.role as RoleType);
+        if (session.branchId) {
+          // We can't set full branch object yet because branches might not be loaded
+          // But we can trigger a fetch or wait for branches
+          // For now, let's at least set the role so the sidebar works.
+          // Ideally we match the branch ID with loaded branches.
+        }
+      } catch (e) {
+        console.error("Failed to parse session", e);
+      }
+    }
   }, []);
+
+  // Effect to sync currentBranch when branches are loaded and we have a session branchId
+  React.useEffect(() => {
+    const storedSession = localStorage.getItem(AUTH_KEY);
+    if (storedSession && branches.length > 0 && !currentBranch) {
+      try {
+        const session = JSON.parse(storedSession);
+        if (session.branchId) {
+          const found = branches.find((b) => b.id === session.branchId);
+          if (found) setCurrentBranch(found);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [branches, currentBranch]);
 
   // Fetch branches from API
   const fetchBranches = React.useCallback(async () => {
@@ -123,8 +158,10 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // ... (useEffect for init and realtime - keeping realtime via Supabase client is fine for listening,
-  // but initial fetch is now API. Realtime subscription actually doesn't need API, it uses websocket directly to Supabase)
+  // Fetch branches on mount
+  React.useEffect(() => {
+    fetchBranches();
+  }, [fetchBranches]);
 
   // ...
 
@@ -249,6 +286,7 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
             name: employee.name,
             role: employee.role,
             branch: branch.name,
+            branchId: branch.id,
             email: employee.email,
           };
           setActiveEmployee(empData);
@@ -332,20 +370,23 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const clockOut = React.useCallback(async (employeeId: string) => {
-    try {
-      const res = await fetch("/api/attendance", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "clock_out", employeeId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to clock out");
-      return data;
-    } catch (error) {
-      throw error;
-    }
-  }, []);
+  const clockOut = React.useCallback(
+    async (employeeId: string, status?: string) => {
+      try {
+        const res = await fetch("/api/attendance", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "clock_out", employeeId, status }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to clock out");
+        return data;
+      } catch (error) {
+        throw error;
+      }
+    },
+    [],
+  );
 
   // Employee Management
   const [employees, setEmployees] = React.useState<Employee[]>([]);
@@ -368,23 +409,24 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
 
   const verifyPin = React.useCallback(
     async (pin: string): Promise<Employee | null> => {
-      let currentEmps = employees;
-      if (currentEmps.length === 0) {
-        try {
-          const res = await fetch("/api/employees");
-          if (res.ok) {
-            const data = await res.json();
-            currentEmps = data;
-            setEmployees(data);
-          }
-        } catch (e) {
-          console.error("Verify PIN fetch error", e);
+      try {
+        const res = await fetch("/api/auth/verify-pin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin }),
+        });
+
+        if (res.ok) {
+          const employee = await res.json();
+          return employee;
         }
+        return null;
+      } catch (e) {
+        console.error("Verify PIN error", e);
+        return null;
       }
-      const employee = currentEmps.find((e: any) => e.pin === pin);
-      return employee || null;
     },
-    [employees],
+    [],
   );
 
   const logout = React.useCallback(() => {

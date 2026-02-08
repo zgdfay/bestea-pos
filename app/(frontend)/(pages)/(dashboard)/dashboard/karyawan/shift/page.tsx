@@ -99,7 +99,12 @@ function getWeekStartDate(weekLabel: string): string {
 
   const month = monthMap[monthStr] ?? 0;
   const date = new Date(year, month, day);
-  return date.toISOString().split("T")[0]; // YYYY-MM-DD
+
+  // Adjust for timezone to ensure we get the correct YYYY-MM-DD for the local date
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60 * 1000);
+
+  return localDate.toISOString().split("T")[0]; // YYYY-MM-DD
 }
 
 import { useBranch } from "@/contexts/branch-context";
@@ -275,13 +280,6 @@ export default function ShiftPage() {
   const employeeShifts = allWeeklyShifts[currentWeek] || {};
 
   // Calculate stats for ShiftStats component
-  const SHIFT_HOURS: Record<string, number> = {
-    Pagi: 7, // 08:00 - 15:00 = 7 hours
-    Sore: 7, // 15:00 - 22:00 = 7 hours
-    Office: 8, // 09:00 - 17:00 = 8 hours
-    Libur: 0,
-  };
-
   const shiftStats = useMemo(() => {
     let totalHours = 0;
     let employeesWithSchedule = 0;
@@ -289,9 +287,24 @@ export default function ShiftPage() {
     employees.forEach((emp) => {
       const shifts = employeeShifts[emp.id];
       if (shifts) {
-        const empHours = shifts.reduce((total: number, shift: any) => {
-          return total + (SHIFT_HOURS[shift.type] || 0);
-        }, 0);
+        let empHours = 0;
+        shifts.forEach((shift: any) => {
+          if (shift.type === "Libur" || shift.time === "-") return;
+
+          try {
+            const [startPart, endPart] = shift.time.split(" - ");
+            if (!startPart || !endPart) return;
+
+            const [startH, startM] = startPart.split(":").map(Number);
+            const [endH, endM] = endPart.split(":").map(Number);
+
+            let diffMins = endH * 60 + endM - (startH * 60 + startM);
+            if (diffMins < 0) diffMins += 24 * 60; // Midnight crossing
+
+            empHours += diffMins / 60;
+          } catch (e) {}
+        });
+
         totalHours += empHours;
         if (empHours > 0) employeesWithSchedule++;
       }
@@ -371,7 +384,7 @@ export default function ShiftPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           employee_id: data.empId,
-          branch_id: currentBranch?.id || emp?.branch,
+          branch_id: currentBranch?.id || emp?.branchId,
           week_start: weekStart,
           day_of_week: data.dayIdx,
           shift_type: data.type,

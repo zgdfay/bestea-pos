@@ -84,7 +84,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { employeeId, branchId, shift, status, notes, checkInTime } = body;
+    const { employeeId, branchId, shift, status, notes, checkInTime, date } = body;
 
     // Validation
     if (!employeeId || !branchId) {
@@ -95,18 +95,19 @@ export async function POST(request: Request) {
     }
 
     const today = new Date().toISOString().split("T")[0];
+    const recordDate = date || today;
 
     // Check if already clocked in today
     const { data: existing } = await supabase
         .from("attendance_records")
         .select("id")
         .eq("employee_id", employeeId)
-        .eq("date", today)
+        .eq("date", recordDate)
         .single();
     
     if (existing) {
         return NextResponse.json(
-            { error: "Employee already has an attendance record for today" },
+            { error: "Employee already has an attendance record for this date" },
              { status: 400 }
         );
     }
@@ -117,8 +118,8 @@ export async function POST(request: Request) {
         {
           employee_id: employeeId,
           branch_id: branchId,
-          date: today,
-          check_in: checkInTime || new Date().toISOString(), // Full ISO timestamp for TIMESTAMPTZ
+          date: recordDate,
+          check_in: checkInTime || new Date(recordDate).toISOString(), // Default to 00:00 UTC of target date (07:00 WIB)
           status: status || "Hadir",
           shift: shift || "Pagi", // Default to Pagi for now
           notes: notes || "",
@@ -151,6 +152,7 @@ export async function PUT(request: Request) {
      if (action === "clock_out") {
          // Clock Out Logic
          const today = new Date().toISOString().split("T")[0];
+         const { status: bodyStatus } = body;
          
          // Find record if ID not provided
          let recordId = id;
@@ -168,12 +170,18 @@ export async function PUT(request: Request) {
             recordId = todayRecord.id;
          }
 
+         const updateData: any = {
+             check_out: checkOutTime || new Date().toISOString(),
+             notes: notes 
+         };
+
+         if (bodyStatus) {
+             updateData.status = bodyStatus;
+         }
+
          const { data, error } = await supabase
             .from("attendance_records")
-            .update({
-                check_out: checkOutTime || new Date().toISOString(), // Full ISO timestamp for TIMESTAMPTZ
-                notes: notes // Append or update notes if needed
-            })
+            .update(updateData)
             .eq("id", recordId)
             .select()
             .single();
@@ -198,6 +206,32 @@ export async function PUT(request: Request) {
     console.error("Error updating attendance:", error);
     return NextResponse.json(
       { error: error.message || "Failed to update attendance" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing ID" }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from("attendance_records")
+      .delete()
+      .eq("id", id);
+
+    if (error) throw error;
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("Error deleting attendance:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to delete attendance" },
       { status: 500 }
     );
   }

@@ -22,6 +22,7 @@ export interface ShiftEmployee {
   id: string;
   name: string;
   role: string;
+  branchId?: string;
 }
 
 interface ShiftData {
@@ -41,12 +42,17 @@ interface ShiftData {
   // Employee tracking
   openedBy: ShiftEmployee | null;
   closedBy: ShiftEmployee | null;
+  sessionId?: string;
 }
 
 interface ShiftContextType {
   isShiftOpen: boolean;
   shiftData: ShiftData;
-  openShift: (initialCash: number, employee: ShiftEmployee) => void;
+  openShift: (
+    initialCash: number,
+    employee: ShiftEmployee,
+    branchId: string,
+  ) => void;
   closeShift: (
     actualCash: number,
     employee: ShiftEmployee,
@@ -124,45 +130,97 @@ export function ShiftProvider({ children }: { children: ReactNode }) {
     );
   }, [isShiftOpen, shiftData]);
 
-  const openShift = (initialCash: number, employee: ShiftEmployee) => {
-    const now = new Date().toISOString();
-    setShiftData({
-      startTime: now,
-      endTime: null,
-      initialCash,
-      totalCashTransactions: 0,
-      totalQrisTransactions: 0,
-      totalExpenses: 0,
-      expenses: [],
-      transactions: [],
-      expectedCash: initialCash,
-      actualCash: null,
-      discrepancy: null,
-      notes: null,
-      branchName: shiftData.branchName,
-      openedBy: employee,
-      closedBy: null,
-    });
-    setIsShiftOpen(true);
+  const openShift = async (
+    initialCash: number,
+    employee: ShiftEmployee,
+    branchId: string,
+  ) => {
+    try {
+      // 1. Call API to create session
+      console.log("[ShiftContext] calling /api/shift-sessions with", {
+        branchId,
+        employeeId: employee.id,
+      });
+      const res = await fetch("/api/shift-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId,
+          employeeId: employee.id,
+          initialCash,
+        }),
+      });
+
+      const session = await res.json();
+      if (!res.ok) throw new Error(session.error);
+
+      const now = new Date().toISOString();
+      const newShiftData = {
+        sessionId: session.id, // Store ID
+        startTime: now,
+        endTime: null,
+        initialCash,
+        totalCashTransactions: 0,
+        totalQrisTransactions: 0,
+        totalExpenses: 0,
+        expenses: [],
+        transactions: [],
+        expectedCash: initialCash,
+        actualCash: null,
+        discrepancy: null,
+        notes: null,
+        branchName: shiftData.branchName,
+        openedBy: employee,
+        closedBy: null,
+      };
+
+      setShiftData(newShiftData);
+      setIsShiftOpen(true);
+      return session; // Return for caller if needed
+    } catch (error) {
+      console.error("Failed to open shift session", error);
+      throw error; // Re-throw to let Modal handle UI
+    }
   };
 
-  const closeShift = (
+  const closeShift = async (
     actualCash: number,
     employee: ShiftEmployee,
     notes?: string,
   ) => {
-    const now = new Date().toISOString();
-    const discrepancy = actualCash - shiftData.expectedCash;
+    try {
+      const now = new Date().toISOString();
+      const discrepancy = actualCash - shiftData.expectedCash;
 
-    setShiftData((prev) => ({
-      ...prev,
-      endTime: now,
-      actualCash,
-      discrepancy,
-      notes: notes || null,
-      closedBy: employee,
-    }));
-    setIsShiftOpen(false);
+      // 1. Call API to update/close session
+      if (shiftData.sessionId) {
+        await fetch("/api/shift-sessions", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: shiftData.sessionId,
+            employeeId: employee.id,
+            actualCash,
+            expectedCash: shiftData.expectedCash,
+            notes,
+          }),
+        });
+      }
+
+      setShiftData((prev) => ({
+        ...prev,
+        endTime: now,
+        actualCash,
+        discrepancy,
+        notes: notes || null,
+        closedBy: employee,
+      }));
+      setIsShiftOpen(false);
+    } catch (error) {
+      console.error("Failed to close shift session", error);
+      // We still close locally to avoid getting stuck
+      setIsShiftOpen(false);
+    }
   };
 
   const addTransaction = (transaction: Transaction) => {

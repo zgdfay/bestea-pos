@@ -36,6 +36,8 @@ import {
   Key,
   RefreshCw,
   Loader2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -78,6 +80,7 @@ interface Employee {
   joinDate: string;
   baseSalary: number;
   hourlyRate: number;
+  deductionAmount?: number;
   pin: string;
 }
 
@@ -87,20 +90,22 @@ interface Branch {
   type: string;
 }
 
+interface Role {
+  id: string;
+  name: string;
+}
+
 const statusConfig = {
   active: { label: "Aktif", className: "bg-green-100 text-green-700" },
   inactive: { label: "Non-Aktif", className: "bg-red-100 text-red-700" },
 };
 
-const roles = [
-  { id: "kasir", name: "Kasir" },
-  { id: "admin_cabang", name: "Admin Cabang" },
-  { id: "super_admin", name: "Super Admin" },
-];
+// Roles will be fetched dynamically from API
 
 export default function KaryawanPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [availableRoles, setAvailableRoles] = useState<Role[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -112,6 +117,14 @@ export default function KaryawanPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [visiblePins, setVisiblePins] = useState<Record<string, boolean>>({});
+
+  const togglePinVisibility = (id: string) => {
+    setVisiblePins((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
 
   // Form State
   const [formData, setFormData] = useState<{
@@ -123,6 +136,7 @@ export default function KaryawanPage() {
     status: "active" | "inactive";
     baseSalary: number;
     hourlyRate: number;
+    deductionAmount: number;
     pin: string;
   }>({
     name: "",
@@ -132,7 +146,8 @@ export default function KaryawanPage() {
     branchId: "",
     status: "active",
     baseSalary: 1500000,
-    hourlyRate: 15000,
+    hourlyRate: 0,
+    deductionAmount: 50000,
     pin: "",
   });
 
@@ -144,9 +159,10 @@ export default function KaryawanPage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [empRes, branchRes] = await Promise.all([
+      const [empRes, branchRes, roleRes] = await Promise.all([
         fetch("/api/employees"),
         fetch("/api/branches"),
+        fetch("/api/roles"),
       ]);
 
       if (empRes.ok) {
@@ -156,6 +172,10 @@ export default function KaryawanPage() {
       if (branchRes.ok) {
         const branchData = await branchRes.json();
         setBranches(branchData.filter((b: any) => b.type === "cabang"));
+      }
+      if (roleRes.ok) {
+        const roleData = await roleRes.json();
+        setAvailableRoles(roleData);
       }
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -181,7 +201,8 @@ export default function KaryawanPage() {
         branchId: emp.branchId || "",
         status: emp.status,
         baseSalary: emp.baseSalary || 1500000,
-        hourlyRate: emp.hourlyRate || 15000,
+        hourlyRate: emp.hourlyRate || 0,
+        deductionAmount: emp.deductionAmount || 50000,
         pin: emp.pin || "",
       });
     } else {
@@ -194,7 +215,8 @@ export default function KaryawanPage() {
         branchId: branches[0]?.id || "",
         status: "active",
         baseSalary: 1500000,
-        hourlyRate: 15000,
+        hourlyRate: 0,
+        deductionAmount: 50000,
         pin: generatePin(),
       });
     }
@@ -414,11 +436,23 @@ export default function KaryawanPage() {
                         <div className="flex items-center gap-2">
                           <Badge
                             variant="outline"
-                            className="bg-blue-50 text-blue-700 border-blue-200 font-mono"
+                            className="bg-blue-50 text-blue-700 border-blue-200 font-mono w-[60px] justify-center"
                           >
                             <Key className="h-3 w-3 mr-1" />
-                            {emp.pin}
+                            {visiblePins[emp.id] ? emp.pin : "••••"}
                           </Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => togglePinVisibility(emp.id)}
+                          >
+                            {visiblePins[emp.id] ? (
+                              <EyeOff className="h-3 w-3 text-muted-foreground" />
+                            ) : (
+                              <Eye className="h-3 w-3 text-muted-foreground" />
+                            )}
+                          </Button>
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">-</span>
@@ -473,7 +507,10 @@ export default function KaryawanPage() {
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive"
-                            onClick={() => setDeleteId(emp.id)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setDeleteId(emp.id);
+                            }}
                           >
                             Hapus Karyawan
                           </DropdownMenuItem>
@@ -620,7 +657,7 @@ export default function KaryawanPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent position="popper">
-                    {roles.map((role) => (
+                    {availableRoles.map((role) => (
                       <SelectItem key={role.id} value={role.name}>
                         {role.name}
                       </SelectItem>
@@ -654,7 +691,7 @@ export default function KaryawanPage() {
               <div className="grid gap-2">
                 <Label htmlFor="baseSalary">Gaji Pokok</Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">
                     Rp
                   </span>
                   <Input
@@ -665,31 +702,39 @@ export default function KaryawanPage() {
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        baseSalary: parseInt(e.target.value),
+                        baseSalary: Number(e.target.value),
                       })
                     }
+                    placeholder="0"
                   />
                 </div>
+                <p className="text-[10px] text-muted-foreground h-[15px]">
+                  Gaji bulanan
+                </p>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="hourlyRate">Rate Per Jam</Label>
+                <Label htmlFor="deductionAmount">Potongan (Absen)</Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">
                     Rp
                   </span>
                   <Input
-                    id="hourlyRate"
+                    id="deductionAmount"
                     type="number"
                     className="pl-9"
-                    value={formData.hourlyRate}
+                    value={formData.deductionAmount || ""}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        hourlyRate: parseInt(e.target.value),
+                        deductionAmount: Number(e.target.value),
                       })
                     }
+                    placeholder="0"
                   />
                 </div>
+                <p className="text-[10px] text-muted-foreground h-[15px]">
+                  Per hari tidak masuk
+                </p>
               </div>
             </div>
 
