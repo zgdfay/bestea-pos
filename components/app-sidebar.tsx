@@ -24,7 +24,6 @@ import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
 import { TeamSwitcher } from "./team-switcher";
 import { useBranch } from "@/contexts/branch-context";
-import { useEmployee } from "@/app/context/employee-context";
 
 const superAdminNavItems = [
   {
@@ -215,13 +214,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     isSuperAdmin,
     isBranchAdmin,
     isCashier,
+    activeEmployee,
   } = useBranch();
-  const { activeEmployee, employees } = useEmployee();
-
-  // Get full employee data for active user
-  const currentUser = activeEmployee
-    ? employees.find((e) => e.id === activeEmployee.id) || null
-    : null;
 
   // Get avatar from localStorage
   const [avatarUrl, setAvatarUrl] = React.useState("");
@@ -239,7 +233,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Compute user data from activeEmployee
   const userData = {
     name: activeEmployee?.name || "User",
-    email: currentUser?.email || activeEmployee?.branch || "",
+    // @ts-ignore - Assuming email might be added or just placeholder
+    email: activeEmployee?.email || activeEmployee?.branch || "",
     avatar: avatarUrl,
   };
 

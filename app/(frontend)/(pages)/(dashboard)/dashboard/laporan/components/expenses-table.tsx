@@ -23,10 +23,10 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 
-export interface ExpenseRecord {
+interface ExpenseRecord {
   id: string;
   date: string;
-  category: string; // broadened from union type
+  category: string;
   note: string;
   amount: number;
   branch: string;

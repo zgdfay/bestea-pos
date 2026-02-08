@@ -51,51 +51,45 @@ const formatter = new Intl.NumberFormat("id-ID", {
   minimumFractionDigits: 0,
 });
 
-import { useTransactions } from "@/app/context/transaction-context";
-import { parseISO, format, subDays, startOfDay, isAfter } from "date-fns";
-import { id } from "date-fns/locale";
+import { useBranch } from "@/contexts/branch-context";
+import { format } from "date-fns";
 
 // ... constants ...
 
 export function ChartAreaInteractive() {
+  const { currentBranch } = useBranch();
   const [timeRange, setTimeRange] = React.useState("30d");
-  const { transactions } = useTransactions();
+  const [data, setData] = React.useState<
+    { date: string; tunai: number; qris: number }[]
+  >([]);
+  const [isLoading, setIsLoading] = React.useState(false);
 
-  const filteredData = React.useMemo(() => {
-    // Prepare date map
-    const daysToSubtract =
-      timeRange === "30d" ? 30 : timeRange === "14d" ? 14 : 7;
-    const startDate = subDays(startOfDay(new Date()), daysToSubtract);
+  React.useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      try {
+        const query = new URLSearchParams({ period: timeRange });
+        if (currentBranch?.id) query.append("branchId", currentBranch.id);
 
-    const dataMap = new Map<
-      string,
-      { date: string; tunai: number; qris: number }
-    >();
-
-    // Initialize all days in range with 0
-    for (let i = 0; i <= daysToSubtract; i++) {
-      const d = new Date(startDate);
-      d.setDate(d.getDate() + i);
-      const dateKey = format(d, "yyyy-MM-dd");
-      dataMap.set(dateKey, { date: dateKey, tunai: 0, qris: 0 });
-    }
-
-    transactions.forEach((t) => {
-      const tDate = parseISO(t.date);
-      if (isAfter(tDate, startDate)) {
-        const dateKey = format(tDate, "yyyy-MM-dd");
-        const entry = dataMap.get(dateKey);
-        if (entry && t.status === "completed") {
-          if (t.paymentMethod === "cash") entry.tunai += t.totalAmount;
-          else entry.qris += t.totalAmount;
+        const response = await fetch(
+          `/api/dashboard/stats?${query.toString()}`,
+        );
+        if (response.ok) {
+          const result = await response.json();
+          // API returns chartData in format { date: string, tunai: number, qris: number }[]
+          setData(result.chartData || []);
         }
+      } catch (error) {
+        console.error("Failed to fetch chart data:", error);
+      } finally {
+        setIsLoading(false);
       }
-    });
+    };
 
-    return Array.from(dataMap.values()).sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-    );
-  }, [transactions, timeRange]);
+    fetchData();
+  }, [timeRange, currentBranch]);
+
+  const filteredData = data; // Data is already filtered by API
 
   return (
     <Card className="pt-0">

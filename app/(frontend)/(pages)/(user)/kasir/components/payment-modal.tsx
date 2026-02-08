@@ -117,6 +117,7 @@ export function PaymentModal({
                 </p>
               </div>
               <Button
+                type="button"
                 onClick={onClose}
                 className="w-full bg-green-600 hover:bg-green-700 text-white mt-6"
               >
@@ -239,6 +240,7 @@ export function PaymentModal({
 
         <div className="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] flex flex-col-reverse sm:flex-row gap-3 sm:space-x-0 flex-none">
           <Button
+            type="button"
             variant="outline"
             className="w-full sm:w-1/3 h-12 sm:h-14 text-base sm:text-lg font-semibold border-slate-200 hover:bg-slate-50 text-slate-700"
             onClick={onClose}
@@ -246,6 +248,7 @@ export function PaymentModal({
             Batal
           </Button>
           <Button
+            type="button"
             className="w-full sm:w-2/3 h-12 sm:h-14 text-base sm:text-lg font-semibold bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-200 disabled:opacity-50 disabled:shadow-none"
             disabled={parseNumber(amountPaid) < total || !amountPaid}
             onClick={handleConfirm}

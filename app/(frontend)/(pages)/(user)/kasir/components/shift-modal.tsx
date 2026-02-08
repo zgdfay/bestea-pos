@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useShift, ShiftEmployee } from "../context/shift-context";
+import { useBranch } from "@/contexts/branch-context";
 import { Banknote, AlertTriangle, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -26,7 +27,125 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { PinEntryModal } from "./pin-entry-modal";
-import { useEmployee } from "@/app/context/employee-context";
+
+// Shift time configuration (in 24-hour format)
+const SHIFT_TIMES = {
+  Pagi: { start: 8, end: 15 }, // 08:00 - 15:00
+  Sore: { start: 15, end: 22 }, // 15:00 - 22:00
+} as const;
+
+const LATE_TOLERANCE_MINUTES = 15; // 15 minutes tolerance
+
+// Helper to check if employee is late
+const isLate = (shift: "Pagi" | "Sore"): boolean => {
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinutes = now.getMinutes();
+  const shiftStart = SHIFT_TIMES[shift].start;
+
+  // Compare: if current time > shift start + tolerance
+  const totalMinutesNow = currentHour * 60 + currentMinutes;
+  const shiftStartMinutes = shiftStart * 60 + LATE_TOLERANCE_MINUTES;
+
+  return totalMinutesNow > shiftStartMinutes;
+};
+
+// Helper to get current shift based on time
+const getCurrentShift = (): "Pagi" | "Sore" => {
+  const hour = new Date().getHours();
+  // Before 15:00 = Pagi, 15:00 or after = Sore
+  return hour < 15 ? "Pagi" : "Sore";
+};
+
+// Helper to get local date string YYYY-MM-DD
+const getLocalYYYYMMDD = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+// Helper to get Monday of the current week in YYYY-MM-DD format (Local Time)
+const getWeekStart = (): string => {
+  const today = new Date();
+  const day = today.getDay(); // 0 (Sun) to 6 (Sat)
+  const diff = day === 0 ? -6 : 1 - day; // Days to Monday
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + diff);
+  return getLocalYYYYMMDD(monday);
+};
+
+// Helper to get day index (0 = Monday, 6 = Sunday)
+const getDayIndex = (): number => {
+  const day = new Date().getDay(); // 0 (Sun) to 6 (Sat)
+  return day === 0 ? 6 : day - 1; // Convert to 0 = Monday
+};
+
+// Check if employee has a schedule for today
+const checkEmployeeSchedule = async (
+  employeeId: string,
+): Promise<{ hasSchedule: boolean; shiftType: string | null }> => {
+  try {
+    const weekStart = getWeekStart();
+    const dayIndex = getDayIndex();
+
+    // Add cache: 'no-store' to prevent caching
+    const response = await fetch(
+      `/api/shift-schedules?week_start=${weekStart}&employee_id=${employeeId}`,
+      { cache: "no-store" },
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch schedule");
+    }
+
+    const schedules = await response.json();
+    console.log("Debug Schedule Check:", { weekStart, dayIndex, schedules });
+
+    // Find today's schedule
+    const todaySchedule = schedules.find(
+      (s: any) => s.day_of_week === dayIndex,
+    );
+
+    console.log("Today Schedule Found:", todaySchedule);
+
+    if (!todaySchedule || todaySchedule.shift_type === "Libur") {
+      return {
+        hasSchedule: false,
+        shiftType: todaySchedule?.shift_type || null,
+      };
+    }
+
+    return { hasSchedule: true, shiftType: todaySchedule.shift_type };
+  } catch (error) {
+    console.error("Error checking schedule:", error);
+    return { hasSchedule: false, shiftType: null };
+  }
+};
+
+// Check if employee already checked in today
+const checkAlreadyCheckedIn = async (employeeId: string): Promise<boolean> => {
+  try {
+    const today = getLocalYYYYMMDD(new Date());
+
+    const response = await fetch(
+      `/api/attendance?employee_id=${employeeId}&date=${today}`,
+      { cache: "no-store" },
+    );
+
+    if (!response.ok) {
+      return false; // Assume not checked in if API fails
+    }
+
+    const records = await response.json();
+
+    // If there's any record for today, they've already checked in
+    return records.length > 0;
+  } catch (error) {
+    console.error("Error checking attendance:", error);
+    return false;
+  }
+};
 
 interface ShiftModalProps {
   isOpen: boolean;
@@ -37,7 +156,7 @@ interface ShiftModalProps {
 export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
   const router = useRouter();
   const { openShift, closeShift, shiftData } = useShift();
-  const { setActiveEmployee } = useEmployee();
+  const { clockIn, clockOut, currentBranch, setActiveEmployee } = useBranch();
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<any>(null);
@@ -96,7 +215,7 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
     setActiveEmployee(employee);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const value = parseNumber(amount);
 
     if (value < 0) {
@@ -113,7 +232,90 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
         setShowPinModal(true);
         return;
       }
+
+      // Check if employee has schedule for today
+      const dayNames = [
+        "Senin",
+        "Selasa",
+        "Rabu",
+        "Kamis",
+        "Jumat",
+        "Sabtu",
+        "Minggu",
+      ];
+      const todayName = dayNames[getDayIndex()];
+
+      toast.loading("Memeriksa jadwal...", { id: "check-schedule" });
+      const { hasSchedule, shiftType } = await checkEmployeeSchedule(
+        pendingEmployee.id,
+      );
+      toast.dismiss("check-schedule");
+
+      if (!hasSchedule) {
+        const message =
+          shiftType === "Libur"
+            ? `${pendingEmployee.name} dijadwalkan LIBUR hari ini (${todayName}).`
+            : `${pendingEmployee.name} tidak memiliki jadwal untuk hari ini (${todayName}).`;
+
+        toast.error("Tidak Dapat Membuka Shift", {
+          description:
+            message + " Silakan hubungi Admin untuk mengatur jadwal.",
+          duration: 3000,
+        });
+
+        // Redirect to login after short delay
+        setTimeout(() => {
+          // Reset context/state if needed or just redirect
+          // We can use the context's logout if available, or just push to login
+          // Using window.location to force full reload/clear state is safer for lockouts
+          window.location.href = "/";
+        }, 1500);
+
+        return;
+      }
+
+      // Check if already checked in today
+      const alreadyCheckedIn = await checkAlreadyCheckedIn(pendingEmployee.id);
+      if (alreadyCheckedIn) {
+        toast.info("Sudah Absen Hari Ini", {
+          description: `${pendingEmployee.name} sudah melakukan absensi masuk hari ini.`,
+          duration: 5000,
+        });
+        // Still allow opening shift, just skip clock-in
+        openShift(value, pendingEmployee);
+        toast.success("Shift berhasil dibuka!", {
+          description: `${pendingEmployee.name} - (Absensi sudah tercatat sebelumnya)`,
+          duration: 5000,
+        });
+        onOpenChange(false);
+        return;
+      }
+
       openShift(value, pendingEmployee);
+
+      // Auto Clock In with late detection
+      if (currentBranch) {
+        const shift = getCurrentShift();
+        const lateStatus = isLate(shift);
+        const status = lateStatus ? "Terlambat" : "Hadir";
+
+        clockIn(pendingEmployee.id, currentBranch.id, shift, status)
+          .then(() => {
+            if (lateStatus) {
+              toast.warning("Absensi Masuk - TERLAMBAT", {
+                description: `Shift ${shift} dimulai jam ${SHIFT_TIMES[shift].start}:00. Toleransi ${LATE_TOLERANCE_MINUTES} menit.`,
+                duration: 6000,
+              });
+            } else {
+              toast.success("Absensi Masuk Berhasil");
+            }
+          })
+          .catch((err) => {
+            console.error("Auto clock-in failed", err);
+            toast.error("Gagal mencatat absensi masuk");
+          });
+      }
+
       const now = new Date();
       toast.success("Shift berhasil dibuka!", {
         description: `${pendingEmployee.name} - Absen Masuk: ${now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}`,
@@ -132,9 +334,11 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
     role: string;
     branch: string;
   }) => {
+    console.log("[CloseShift] PIN verified for:", employee.name);
     setPendingEmployee(employee);
     setShowPinModal(false);
     setShowConfirm(true);
+    console.log("[CloseShift] showConfirm set to true");
   };
 
   const handleConfirmClosure = () => {
@@ -145,6 +349,19 @@ export function ShiftModal({ isOpen, mode, onOpenChange }: ShiftModalProps) {
     if (!pendingEmployee) return;
 
     closeShift(value, pendingEmployee, notes);
+
+    // Auto Clock Out - clock out the employee who OPENED the shift
+    const employeeToClockOut = shiftData.openedBy?.id || pendingEmployee.id;
+    clockOut(employeeToClockOut)
+      .then(() => {
+        toast.success("Absensi Pulang Berhasil");
+      })
+      .catch((err) => {
+        console.error("Auto clock-out failed", err);
+        // Don't show error if no clock-in record - just log it
+        console.log("Clock out skipped - no clock-in record found");
+      });
+
     setSummary({
       actual: value,
       expected: expected,

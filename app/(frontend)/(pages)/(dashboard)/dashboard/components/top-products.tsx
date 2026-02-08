@@ -25,14 +25,19 @@ const formatter = new Intl.NumberFormat("id-ID", {
 
 // Static data removed
 
-import { useTransactions } from "@/app/context/transaction-context";
+interface TopProductsProps {
+  products: {
+    name: string;
+    sold: number;
+    revenue: number;
+  }[];
+}
 
-export function TopProducts() {
-  const { getTopProducts } = useTransactions();
-  const topProducts = getTopProducts(5).map((p, i) => ({
+export function TopProducts({ products }: TopProductsProps) {
+  const topProducts = products.map((p, i) => ({
     rank: i + 1,
     name: p.name,
-    category: "Beverage", // Placeholder
+    category: "Menu", // API doesn't return category yet, hardcode or fetch
     sold: p.sold,
     revenue: p.revenue,
   }));

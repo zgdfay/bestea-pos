@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Plus, CalendarIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -72,16 +72,47 @@ for (let i = -4; i <= 4; i++) {
 // Default empty shift for an employee
 const createEmptyWeek = () => Array(7).fill({ type: "Libur", time: "-" });
 
-import { useEmployee } from "@/app/context/employee-context";
+// Helper to get week start date from week label
+function getWeekStartDate(weekLabel: string): string {
+  // Parse "3 Feb - 9 Feb 2026" format
+  const match = weekLabel.match(/(\d+)\s+(\w+)\s*-\s*\d+\s+\w+\s+(\d+)/);
+  if (!match) return "";
 
-// ... constants ...
+  const day = parseInt(match[1]);
+  const monthStr = match[2];
+  const year = parseInt(match[3]);
+
+  const monthMap: Record<string, number> = {
+    Jan: 0,
+    Feb: 1,
+    Mar: 2,
+    Apr: 3,
+    Mei: 4,
+    Jun: 5,
+    Jul: 6,
+    Agu: 7,
+    Sep: 8,
+    Okt: 9,
+    Nov: 10,
+    Des: 11,
+  };
+
+  const month = monthMap[monthStr] ?? 0;
+  const date = new Date(year, month, day);
+  return date.toISOString().split("T")[0]; // YYYY-MM-DD
+}
+
+import { useBranch } from "@/contexts/branch-context";
+import { toast as sonnerToast } from "sonner";
+import React from "react";
 
 export default function ShiftPage() {
-  const { employees: allEmployees } = useEmployee();
+  const { employees: allEmployees, currentBranch } = useBranch();
   // Filter out Super Admin and Admin Cabang - only show Kasir in shift schedule
   const employees = allEmployees.filter((e) => e.role === "Kasir");
   // Default to index 4 (Current Week) since we generated -4 to 4
   const [currentWeek, setCurrentWeek] = useState(availableWeeks[4]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Initial structure: Initialize all available weeks with empty shifts
   // We lazily initialize this, but now we need to respect the Context employees
@@ -152,9 +183,126 @@ export default function ShiftPage() {
     });
   }, [employees]);
 
+  // Track fetching state to prevent duplicate calls
+  const isFetchingRef = useRef(false);
+  const fetchedWeeksRef = useRef<Set<string>>(new Set());
+
+  // Fetch schedules from API
+  const fetchSchedules = useCallback(
+    async (weekLabel: string, employeeList: typeof employees) => {
+      const weekStart = getWeekStartDate(weekLabel);
+      if (!weekStart) return;
+
+      // Prevent duplicate fetches
+      if (isFetchingRef.current || fetchedWeeksRef.current.has(weekLabel)) {
+        return;
+      }
+
+      isFetchingRef.current = true;
+      fetchedWeeksRef.current.add(weekLabel);
+      setIsLoading(true);
+
+      try {
+        const response = await fetch(
+          `/api/shift-schedules?week_start=${weekStart}`,
+        );
+        if (!response.ok) throw new Error("Failed to fetch schedules");
+
+        const data = await response.json();
+
+        // Update state with fetched data
+        setAllWeeklyShifts((prev) => {
+          const next = { ...prev };
+          if (!next[weekLabel]) next[weekLabel] = {};
+
+          // Initialize all employees with empty week first
+          employeeList.forEach((emp) => {
+            if (!next[weekLabel][emp.id]) {
+              next[weekLabel][emp.id] = createEmptyWeek();
+            }
+          });
+
+          // Apply API data
+          data.forEach((schedule: any) => {
+            const empId = schedule.employee_id;
+            const dayIdx = schedule.day_of_week;
+            const timeStr =
+              schedule.shift_type === "Libur"
+                ? "-"
+                : `${schedule.start_time?.slice(0, 5)} - ${schedule.end_time?.slice(0, 5)}`;
+
+            if (next[weekLabel][empId]) {
+              next[weekLabel][empId][dayIdx] = {
+                type: schedule.shift_type,
+                time: timeStr,
+              };
+            }
+          });
+
+          return next;
+        });
+      } catch (error) {
+        console.error("Error fetching schedules:", error);
+        // Remove from fetched on error so retry is possible
+        fetchedWeeksRef.current.delete(weekLabel);
+      } finally {
+        setIsLoading(false);
+        isFetchingRef.current = false;
+      }
+    },
+    [],
+  );
+
+  // Fetch only once when employees are loaded
+  const hasFetchedInitial = useRef(false);
+  useEffect(() => {
+    if (!hasFetchedInitial.current && currentWeek && employees.length > 0) {
+      hasFetchedInitial.current = true;
+      fetchSchedules(currentWeek, employees);
+    }
+  }, [currentWeek, employees, fetchSchedules]);
+
+  // Handler for week change (manual)
+  const handleWeekChange = (newWeek: string) => {
+    setCurrentWeek(newWeek);
+    if (!fetchedWeeksRef.current.has(newWeek) && employees.length > 0) {
+      fetchSchedules(newWeek, employees);
+    }
+  };
+
   // Derived state for current week
   // We default to {} to prevent crash if week key missing
   const employeeShifts = allWeeklyShifts[currentWeek] || {};
+
+  // Calculate stats for ShiftStats component
+  const SHIFT_HOURS: Record<string, number> = {
+    Pagi: 7, // 08:00 - 15:00 = 7 hours
+    Sore: 7, // 15:00 - 22:00 = 7 hours
+    Office: 8, // 09:00 - 17:00 = 8 hours
+    Libur: 0,
+  };
+
+  const shiftStats = useMemo(() => {
+    let totalHours = 0;
+    let employeesWithSchedule = 0;
+
+    employees.forEach((emp) => {
+      const shifts = employeeShifts[emp.id];
+      if (shifts) {
+        const empHours = shifts.reduce((total: number, shift: any) => {
+          return total + (SHIFT_HOURS[shift.type] || 0);
+        }, 0);
+        totalHours += empHours;
+        if (empHours > 0) employeesWithSchedule++;
+      }
+    });
+
+    return {
+      totalHours,
+      employeeCount: employees.length,
+      employeesWithSchedule,
+    };
+  }, [employees, employeeShifts]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -206,29 +354,59 @@ export default function ShiftPage() {
     }
   };
 
-  const handleSaveShift = (data: {
+  const handleSaveShift = async (data: {
     empId: string;
     dayIdx: number;
     type: string;
     startTime: string;
     endTime: string;
   }) => {
-    const newAllShifts = { ...allWeeklyShifts };
-    const timeString =
-      data.type === "Libur" ? "-" : `${data.startTime} - ${data.endTime}`;
+    const weekStart = getWeekStartDate(currentWeek);
+    const emp = employees.find((e) => e.id === data.empId);
 
-    newAllShifts[currentWeek][data.empId][data.dayIdx] = {
-      type: data.type,
-      time: timeString,
-    };
+    // Save to database
+    try {
+      const response = await fetch("/api/shift-schedules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employee_id: data.empId,
+          branch_id: currentBranch?.id || emp?.branch,
+          week_start: weekStart,
+          day_of_week: data.dayIdx,
+          shift_type: data.type,
+          start_time: data.type === "Libur" ? null : data.startTime,
+          end_time: data.type === "Libur" ? null : data.endTime,
+        }),
+      });
 
-    setAllWeeklyShifts(newAllShifts);
-    setIsModalOpen(false);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to save schedule");
+      }
 
-    const empName = employees.find((e) => e.id === data.empId)?.name;
-    toast.success("Jadwal Berhasil Diperbarui", {
-      description: `${empName} diatur ke ${data.type} (${timeString}) pada ${days[data.dayIdx]}`,
-    });
+      // Update local state
+      const newAllShifts = { ...allWeeklyShifts };
+      const timeString =
+        data.type === "Libur" ? "-" : `${data.startTime} - ${data.endTime}`;
+
+      newAllShifts[currentWeek][data.empId][data.dayIdx] = {
+        type: data.type,
+        time: timeString,
+      };
+
+      setAllWeeklyShifts(newAllShifts);
+      setIsModalOpen(false);
+
+      toast.success("Jadwal Berhasil Disimpan", {
+        description: `${emp?.name} diatur ke ${data.type} (${timeString}) pada ${days[data.dayIdx]}`,
+      });
+    } catch (error: any) {
+      console.error("Error saving schedule:", error);
+      toast.error("Gagal Menyimpan Jadwal", {
+        description: error.message || "Terjadi kesalahan saat menyimpan",
+      });
+    }
   };
 
   return (
@@ -257,7 +435,11 @@ export default function ShiftPage() {
       </div>
 
       {/* Stats Summary */}
-      <ShiftStats />
+      <ShiftStats
+        totalHours={shiftStats.totalHours}
+        employeeCount={shiftStats.employeeCount}
+        employeesWithSchedule={shiftStats.employeesWithSchedule}
+      />
 
       {/* Main Schedule Matrix */}
       <Card>
@@ -270,7 +452,7 @@ export default function ShiftPage() {
                 mengubah.
               </CardDescription>
             </div>
-            <Select value={currentWeek} onValueChange={setCurrentWeek}>
+            <Select value={currentWeek} onValueChange={handleWeekChange}>
               <SelectTrigger className="w-[240px]">
                 <SelectValue placeholder="Pilih Minggu" />
               </SelectTrigger>

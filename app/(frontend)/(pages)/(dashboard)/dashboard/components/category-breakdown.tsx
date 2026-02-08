@@ -23,9 +23,18 @@ const COLORS = [
   "bg-rose-500",
 ];
 
-export function CategoryBreakdown() {
-  const { getBranchPerformance } = useTransactions();
-  const branchBreakdown = getBranchPerformance().map((b, i) => ({
+interface CategoryBreakdownProps {
+  branchPerformance: {
+    branch: string;
+    revenue: number;
+    percentage: number;
+  }[];
+}
+
+export function CategoryBreakdown({
+  branchPerformance,
+}: CategoryBreakdownProps) {
+  const branchBreakdown = branchPerformance.map((b, i) => ({
     ...b,
     color: COLORS[i % COLORS.length],
   }));

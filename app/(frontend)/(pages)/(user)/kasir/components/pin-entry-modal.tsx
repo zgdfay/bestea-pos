@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { User, Check, Loader2 } from "lucide-react";
-import { useEmployee } from "@/app/context/employee-context";
+import { useBranch } from "@/contexts/branch-context";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 
@@ -39,7 +39,7 @@ export function PinEntryModal({
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
-  const { verifyPin } = useEmployee();
+  const { verifyPin } = useBranch();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const PIN_LENGTH = 4;
@@ -61,7 +61,7 @@ export function PinEntryModal({
     setError(null);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (pin.length !== PIN_LENGTH) {
       setError(`PIN harus ${PIN_LENGTH} digit`);
       return;
@@ -69,9 +69,8 @@ export function PinEntryModal({
 
     setIsVerifying(true);
 
-    // Simulate slight delay for UX
-    setTimeout(() => {
-      const employee = verifyPin(pin, branchName);
+    try {
+      const employee = await verifyPin(pin);
 
       if (employee) {
         toast.success(`Selamat datang, ${employee.name}!`);
@@ -81,15 +80,16 @@ export function PinEntryModal({
           role: employee.role,
           branch: employee.branch,
         });
-        // Don't call onOpenChange here - let the parent (shift-modal) handle it
-        // onOpenChange(false) was causing a race condition with pendingEmployee state
       } else {
         setError("PIN tidak valid atau karyawan tidak aktif");
         setPin("");
         inputRef.current?.focus();
       }
+    } catch (e) {
+      setError("Terjadi kesalahan verifikasi");
+    } finally {
       setIsVerifying(false);
-    }, 300);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

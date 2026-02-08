@@ -35,17 +35,24 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import { useEmployee } from "@/app/context/employee-context";
-import { useBranch } from "@/contexts/branch-context";
+import { useBranch, Employee } from "@/contexts/branch-context";
 import { supabase } from "@/lib/supabase";
 
+// Extended employee info for Akun page
+interface ExtendedEmployee extends Employee {
+  phone?: string;
+  baseSalary?: number;
+  hourlyRate?: number;
+}
+
 export default function AkunPage() {
-  const { activeEmployee, employees, updateEmployee } = useEmployee();
-  const { userRole } = useBranch();
+  const { activeEmployee, employees, userRole } = useBranch();
 
   // Get full employee data
   const currentUser = activeEmployee
-    ? employees.find((e) => e.id === activeEmployee.id) || null
+    ? (employees.find((e) => e.id === activeEmployee.id) as
+        | ExtendedEmployee
+        | undefined) || null
     : null;
 
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -74,8 +81,8 @@ export default function AkunPage() {
   useEffect(() => {
     if (currentUser) {
       setName(currentUser.name);
-      setEmail(currentUser.email);
-      setPhone(currentUser.phone);
+      setEmail(currentUser.email || "");
+      setPhone(currentUser.phone || "");
     }
   }, [currentUser]);
 
@@ -110,14 +117,6 @@ export default function AkunPage() {
         .eq("id", currentUser.id);
 
       if (error) throw error;
-
-      // Update local context
-      await updateEmployee({
-        ...currentUser,
-        name,
-        email,
-        phone,
-      });
 
       // Update activeEmployee in localStorage
       const storedEmployee = localStorage.getItem("bestea-active-employee");
@@ -343,8 +342,8 @@ export default function AkunPage() {
                       onClick={() => {
                         setIsEditingProfile(false);
                         setName(currentUser.name);
-                        setEmail(currentUser.email);
-                        setPhone(currentUser.phone);
+                        setEmail(currentUser.email || "");
+                        setPhone(currentUser.phone || "");
                       }}
                     >
                       Batal

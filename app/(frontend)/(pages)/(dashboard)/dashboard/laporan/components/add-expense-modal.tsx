@@ -31,7 +31,7 @@ interface AddExpenseModalProps {
     branchId: string;
     branchName: string;
   }) => void;
-  branches: string[];
+  branches: { id: string; name: string }[];
 }
 
 export function AddExpenseModal({
@@ -40,90 +40,106 @@ export function AddExpenseModal({
   onConfirm,
   branches,
 }: AddExpenseModalProps) {
+  const [selectedBranchId, setSelectedBranchId] = useState("");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("Operasional");
-  const [selectedBranch, setSelectedBranch] = useState("");
+  const [category, setCategory] = useState("");
 
   const handleSubmit = () => {
-    if (!amount || !description) return;
+    if (!amount || !description || !selectedBranchId || !category) return;
+
+    const selectedBranch = branches.find((b) => b.id === selectedBranchId);
 
     onConfirm({
       category,
       amount: parseInt(amount),
       description,
-      branchId: "manual-input", // Mock ID for now
-      branchName: selectedBranch,
+      branchId: selectedBranchId,
+      branchName: selectedBranch?.name || "Unknown",
     });
 
+    onClose();
     // Reset form
     setAmount("");
     setDescription("");
-    setCategory("Operasional");
-    onClose();
+    setSelectedBranchId("");
+    setCategory("");
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent>
         <DialogHeader>
-          <DialogTitle>Input Pengeluaran</DialogTitle>
+          <DialogTitle>Catat Pengeluaran Baru</DialogTitle>
           <DialogDescription>
-            Catat pengeluaran operasional baru.
+            Masukkan detail pengeluaran operasional di sini.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
-          <div className="grid gap-2">
-            <Label htmlFor="branch">Cabang</Label>
-            <Select value={selectedBranch} onValueChange={setSelectedBranch}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Pilih Cabang" />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                {branches.map(
-                  (b) =>
-                    // Filter out "Semua Cabang" if present, or handle logic in parent
-                    b !== "Semua Cabang" && (
-                      <SelectItem key={b} value={b}>
-                        {b}
-                      </SelectItem>
-                    ),
-                )}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="branch" className="text-right">
+              Cabang
+            </Label>
+            <div className="col-span-3">
+              <Select
+                value={selectedBranchId}
+                onValueChange={setSelectedBranchId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih Cabang" />
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map((branch) => (
+                    <SelectItem key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="category">Kategori</Label>
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Pilih Kategori" />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                <SelectItem value="Operasional">Operasional</SelectItem>
-                <SelectItem value="Bahan Baku">Bahan Baku</SelectItem>
-                <SelectItem value="Gaji">Gaji</SelectItem>
-                <SelectItem value="Sewa">Sewa</SelectItem>
-                <SelectItem value="Lainnya">Lainnya</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="category" className="text-right">
+              Kategori
+            </Label>
+            <div className="col-span-3">
+              <Select value={category} onValueChange={setCategory}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih Kategori" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Operasional">Operasional</SelectItem>
+                  <SelectItem value="Bahan Baku">Bahan Baku</SelectItem>
+                  <SelectItem value="Gaji">Gaji</SelectItem>
+                  <SelectItem value="Sewa">Sewa</SelectItem>
+                  <SelectItem value="Lainnya">Lainnya</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="amount">Jumlah (Rp)</Label>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="amount" className="text-right">
+              Jumlah
+            </Label>
             <Input
               id="amount"
               type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              className="col-span-3"
               placeholder="0"
             />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="description">Keterangan</Label>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="description" className="text-right">
+              Keterangan
+            </Label>
             <Textarea
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Contoh: Beli Es Batu tambahan"
+              className="col-span-3"
+              placeholder="Deskripsi pengeluaran..."
             />
           </div>
         </div>
@@ -132,10 +148,11 @@ export function AddExpenseModal({
             Batal
           </Button>
           <Button
+            type="submit"
             onClick={handleSubmit}
-            disabled={!amount || !description || !selectedBranch}
+            disabled={!amount || !description || !selectedBranchId || !category}
           >
-            Simpan
+            Simpan Pengeluaran
           </Button>
         </DialogFooter>
       </DialogContent>

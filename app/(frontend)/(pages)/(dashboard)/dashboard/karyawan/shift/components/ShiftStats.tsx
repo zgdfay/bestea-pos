@@ -3,7 +3,17 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Clock, Users } from "lucide-react";
 
-export function ShiftStats() {
+interface ShiftStatsProps {
+  totalHours: number;
+  employeeCount: number;
+  employeesWithSchedule: number;
+}
+
+export function ShiftStats({
+  totalHours,
+  employeeCount,
+  employeesWithSchedule,
+}: ShiftStatsProps) {
   return (
     <div className="grid gap-4 md:grid-cols-3">
       <Card>
@@ -14,9 +24,9 @@ export function ShiftStats() {
           <Clock className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">42 Jam</div>
+          <div className="text-2xl font-bold">{totalHours} Jam</div>
           <p className="text-xs text-muted-foreground">
-            +4 jam dari minggu lalu
+            Total jam kerja semua karyawan
           </p>
         </CardContent>
       </Card>
@@ -26,9 +36,9 @@ export function ShiftStats() {
           <Users className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">3 Orang</div>
+          <div className="text-2xl font-bold">{employeeCount} Orang</div>
           <p className="text-xs text-muted-foreground">
-            Semua karyawan memiliki jadwal
+            {employeesWithSchedule} karyawan memiliki jadwal
           </p>
         </CardContent>
       </Card>

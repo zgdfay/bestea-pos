@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Select,
   SelectContent,
@@ -9,83 +9,144 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { CalendarIcon, Download, Plus } from "lucide-react";
+import { CalendarIcon, Download, Plus, Loader2 } from "lucide-react";
 import { AddExpenseModal } from "./components/add-expense-modal";
 import { ReportSummary } from "./components/report-summary";
 import { ExpensesTable } from "./components/expenses-table";
 import { TopProducts } from "./components/top-products";
-import { useTransactions } from "@/app/context/transaction-context";
+import { useBranch } from "@/contexts/branch-context";
 
-// Hardcode branches for now or use BranchContext
-const branches = ["Semua Cabang", "Cabang Bangil", "Cabang Pasuruan"];
+// Helper to format date if needed, or rely on API period
+// We pass period to API.
 
 export default function LaporanPage() {
-  const [selectedBranch, setSelectedBranch] = useState("Semua Cabang");
-  const [dateRange, setDateRange] = useState("Hari Ini");
+  const { branches, isCashier } = useBranch();
+  const [selectedBranch, setSelectedBranch] = useState("all");
+  const [dateRange, setDateRange] = useState("today");
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
 
-  const {
-    getExpensesByBranch,
-    getTransactionsByBranch,
-    getTopProducts,
-    addExpense,
-  } = useTransactions();
+  const [isLoading, setIsLoading] = useState(true);
+  const [data, setData] = useState<{
+    transactions: any[];
+    expenses: any[];
+    summary: {
+      omzet: number;
+      expenses: number;
+      profit: number;
+      transactions: number;
+    };
+  } | null>(null);
 
-  // ... existing code ...
+  const fetchReports = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const query = new URLSearchParams({
+        period: dateRange,
+        branchId: selectedBranch,
+      });
 
-  const handleAddExpense = (data: {
+      const res = await fetch(`/api/reports?${query.toString()}`);
+      if (!res.ok) throw new Error("Failed to fetch reports");
+      const json = await res.json();
+      setData(json);
+    } catch (error) {
+      console.error("Error fetching reports:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [dateRange, selectedBranch]);
+
+  useEffect(() => {
+    fetchReports();
+  }, [fetchReports]);
+
+  const handleAddExpense = async (expenseData: {
     category: string;
     amount: number;
     description: string;
     branchId: string;
     branchName: string;
   }) => {
-    // Map category string to union type defined in Context if needed, or cast it.
-    // The Context defines: category: "Operasional" | "Bahan Baku" | "Gaji" | "Sewa" | "Lainnya";
-    addExpense({
-      ...data,
-      category: data.category as any,
-      recordedBy: "Admin", // Hardcode Admin for dashboard input
-    });
+    try {
+      const res = await fetch("/api/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...expenseData,
+          recordedBy: "Admin", // TODO: Get from auth context
+          date: new Date().toISOString(),
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to add expense");
+
+      // Refresh data
+      fetchReports();
+    } catch (error) {
+      console.error("Error adding expense:", error);
+      alert("Gagal menyimpan pengeluaran");
+    }
   };
 
-  // Get data based on filter
-  const rawExpenses = getExpensesByBranch(selectedBranch);
-  const expenses = rawExpenses.map((e) => ({
-    id: e.id,
-    date: new Date(e.date).toLocaleDateString("id-ID"),
-    category: e.category,
-    note: e.description,
-    amount: e.amount,
-    branch: e.branchName,
-    employeeName: e.recordedBy,
-  }));
+  // Map expenses for table
+  const tableExpenses = useMemo(() => {
+    if (!data?.expenses) return [];
+    return data.expenses.map((e) => ({
+      id: e.id,
+      date: new Date(e.date || e.created_at).toLocaleDateString("id-ID"),
+      category: e.category,
+      note: e.description,
+      amount: e.amount,
+      branch:
+        e.branchName ||
+        branches.find((b) => b.id === e.branch_id)?.name ||
+        "Unknown",
+      employeeName: e.recorded_by || e.recordedBy || "-",
+    }));
+  }, [data?.expenses, branches]);
 
-  const transactions = getTransactionsByBranch(selectedBranch);
-  const topProducts = getTopProducts(5, selectedBranch);
+  // Top Products Calculation (Client-side from transactions)
+  const calculatedTopProducts = useMemo(() => {
+    if (!data?.transactions) return [];
 
-  // Calculate totals
-  const totalOmzet = transactions.reduce(
-    (acc, t) => (t.status === "completed" ? acc + t.totalAmount : acc),
-    0,
-  );
-  const totalExpenses = expenses.reduce((acc, e) => acc + e.amount, 0);
-  const totalTransactions = transactions.filter(
-    (t) => t.status === "completed",
-  ).length;
+    const productStats: Record<
+      string,
+      { name: string; sold: number; revenue: number }
+    > = {};
 
-  // Format TopProducts for component
-  const formattedTopProducts = topProducts.map((p, i) => ({
-    id: `tp-${i}`,
-    name: p.name,
-    category: "Drink", // Simplified
-    sold: p.sold,
-    revenue: p.revenue,
-    trend: "up" as const, // Mock trend
-  }));
+    data.transactions.forEach((t) => {
+      if (t.status === "completed" && t.transaction_items) {
+        t.transaction_items.forEach((item: any) => {
+          const pid = item.product_id || item.product_name; // Fallback
+          if (!productStats[pid]) {
+            productStats[pid] = {
+              name: item.product_name,
+              sold: 0,
+              revenue: 0,
+            };
+          }
+          productStats[pid].sold += item.quantity;
+          productStats[pid].revenue += item.subtotal;
+        });
+      }
+    });
+
+    return Object.values(productStats)
+      .sort((a, b) => b.sold - a.sold)
+      .slice(0, 5)
+      .map((p, i) => ({
+        id: `tp-${i}`,
+        name: p.name,
+        category: "Menu",
+        sold: p.sold,
+        revenue: p.revenue,
+      }));
+  }, [data?.transactions]);
 
   // Export handler
   const handleExport = () => {
+    if (!tableExpenses.length) return;
+
     // Create CSV content
     const headers = [
       "Tanggal",
@@ -95,7 +156,7 @@ export default function LaporanPage() {
       "Staff",
       "Jumlah",
     ];
-    const rows = expenses.map((e) => [
+    const rows = tableExpenses.map((e) => [
       e.date,
       e.category,
       e.note,
@@ -109,107 +170,104 @@ export default function LaporanPage() {
       ...rows.map((row) => row.join(",")),
     ].join("\n");
 
-    // Create download link
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", `laporan-keuangan-${dateRange}.csv`);
+    link.setAttribute(
+      "download",
+      `laporan_pengeluaran_${new Date().toISOString().split("T")[0]}.csv`,
+    );
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  if (isCashier) return null;
+
   return (
     <div className="space-y-6">
-      {/* Modal */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Laporan Keuangan
+          </h1>
+          <p className="text-muted-foreground">
+            Ringkasan performa bisnis, omzet, dan pengeluaran
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          {/* Branch Filter */}
+          <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder="Pilih Cabang" />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              <SelectItem value="all">Semua Cabang</SelectItem>
+              {branches.map((branch) => (
+                <SelectItem key={branch.id} value={branch.id}>
+                  {branch.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Date Filter */}
+          <Select value={dateRange} onValueChange={setDateRange}>
+            <SelectTrigger className="w-full sm:w-[150px]">
+              <CalendarIcon className="mr-2 h-4 w-4" />
+              <SelectValue placeholder="Periode" />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              <SelectItem value="today">Hari Ini</SelectItem>
+              <SelectItem value="yesterday">Kemarin</SelectItem>
+              <SelectItem value="this_week">Minggu Ini</SelectItem>
+              <SelectItem value="this_month">Bulan Ini</SelectItem>
+              <SelectItem value="this_year">Tahun Ini</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={!tableExpenses.length}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
+          <Button onClick={() => setIsAddExpenseOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Catat Pengeluaran
+          </Button>
+        </div>
+      </div>
+
+      {isLoading || !data ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <>
+          <ReportSummary
+            omzet={data.summary.omzet}
+            expenses={data.summary.expenses}
+            transactions={data.summary.transactions}
+          />
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <ExpensesTable expenses={tableExpenses} />
+            <TopProducts products={calculatedTopProducts} />
+          </div>
+        </>
+      )}
+
       <AddExpenseModal
         isOpen={isAddExpenseOpen}
         onClose={() => setIsAddExpenseOpen(false)}
         onConfirm={handleAddExpense}
         branches={branches}
       />
-
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Laporan Keuangan
-          </h1>
-          <p className="text-muted-foreground">
-            Monitor performa bisnis dan pengeluaran operasional
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={() => setIsAddExpenseOpen(true)}
-            className="bg-orange-600 hover:bg-orange-700"
-          >
-            <Plus className="mr-2 h-4 w-4" />
-            Input Pengeluaran
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="mr-2 h-4 w-4" />
-            Export Excel
-          </Button>
-        </div>
-      </div>
-
-      {/* Stats Cards */}
-      <ReportSummary
-        omzet={totalOmzet}
-        expenses={totalExpenses}
-        transactions={totalTransactions}
-      />
-
-      {/* Filters Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-4 p-4 bg-white rounded-lg border shadow-sm">
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <span className="text-sm font-medium whitespace-nowrap">Cabang:</span>
-          <Select value={selectedBranch} onValueChange={setSelectedBranch}>
-            <SelectTrigger className="w-full sm:w-[200px]">
-              <SelectValue placeholder="Pilih Cabang" />
-            </SelectTrigger>
-            <SelectContent position="popper">
-              {branches.map((b) => (
-                <SelectItem key={b} value={b}>
-                  {b}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <span className="text-sm font-medium whitespace-nowrap">
-            Periode:
-          </span>
-          <Select value={dateRange} onValueChange={setDateRange}>
-            <SelectTrigger className="w-full sm:w-[180px]">
-              <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
-              <SelectValue placeholder="Pilih Periode" />
-            </SelectTrigger>
-            <SelectContent position="popper">
-              <SelectItem value="Hari Ini">Hari Ini</SelectItem>
-              <SelectItem value="Kemarin">Kemarin</SelectItem>
-              <SelectItem value="Minggu Ini">Minggu Ini</SelectItem>
-              <SelectItem value="Bulan Ini">Bulan Ini</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* Detailed Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          {/* Expenses Table */}
-          <ExpensesTable expenses={expenses} />
-        </div>
-        <div>
-          {/* Top Products */}
-          <TopProducts products={formattedTopProducts} />
-        </div>
-      </div>
     </div>
   );
 }

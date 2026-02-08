@@ -18,6 +18,23 @@ interface ShiftTableProps {
   onCellClick: (empId: string, dayIdx: number) => void;
 }
 
+// Helper to calculate total hours from shifts
+const SHIFT_HOURS: Record<string, number> = {
+  Pagi: 7, // 08:00 - 15:00 = 7 hours
+  Sore: 7, // 15:00 - 22:00 = 7 hours
+  Office: 8, // 09:00 - 17:00 = 8 hours
+  Libur: 0,
+};
+
+const calculateWeeklyHours = (
+  shifts: { type: string; time: string }[],
+): number => {
+  if (!shifts) return 0;
+  return shifts.reduce((total, shift) => {
+    return total + (SHIFT_HOURS[shift.type] || 0);
+  }, 0);
+};
+
 export function ShiftTable({
   employees,
   employeeShifts,
@@ -75,7 +92,7 @@ export function ShiftTable({
                 </TableCell>
               ))}
               <TableCell className="text-right text-xs font-semibold">
-                40h
+                {calculateWeeklyHours(employeeShifts[emp.id])}h
               </TableCell>
             </TableRow>
           ))}

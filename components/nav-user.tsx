@@ -1,8 +1,8 @@
-"use client";
-
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BadgeCheck, ChevronsUpDown, LogOut } from "lucide-react";
+import { useBranch } from "@/contexts/branch-context";
+import { AttendanceButton } from "./attendance-button";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -42,6 +42,7 @@ export function NavUser({
 }) {
   const { isMobile } = useSidebar();
   const router = useRouter();
+  const { logout } = useBranch();
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
   const handleAccountClick = () => {
@@ -49,8 +50,8 @@ export function NavUser({
   };
 
   const handleLogout = () => {
-    // TODO: Implement actual logout logic
-    router.push("/");
+    logout();
+    router.push("/login");
   };
 
   return (
@@ -92,6 +93,10 @@ export function NavUser({
                   </div>
                 </div>
               </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <div className="p-2">
+                <AttendanceButton />
+              </div>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 <DropdownMenuItem onClick={handleAccountClick}>

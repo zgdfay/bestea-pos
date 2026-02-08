@@ -1,15 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,23 +13,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import {
   Plus,
-  MoreHorizontal,
   Search,
   Package,
   Filter,
   ImageIcon,
   Trash2,
+  Loader2,
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -50,17 +35,42 @@ import { toast } from "sonner";
 import {
   Pagination,
   PaginationContent,
-  PaginationEllipsis,
   PaginationItem,
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { initialCategories, type Product } from "./data/mock-data-products";
-import { useProducts } from "@/app/context/product-context";
+
+// Types
+interface ProductVariant {
+  name: string;
+  price: number;
+}
+
+interface Product {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  trackStock: boolean;
+  stock: number;
+  image: string;
+  status: "active" | "inactive";
+  variants?: ProductVariant[];
+}
+
+interface Category {
+  id: string;
+  name: string;
+  productCount: number;
+}
 
 export default function ProductPage() {
-  const { products, addProduct, updateProduct, deleteProduct } = useProducts();
+  // State
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -81,6 +91,36 @@ export default function ProductPage() {
     variants: [],
   });
 
+  // Fetch Data
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [prodRes, catRes] = await Promise.all([
+        fetch("/api/products"),
+        fetch("/api/categories"),
+      ]);
+
+      if (prodRes.ok) {
+        const prodData = await prodRes.json();
+        setProducts(prodData);
+      }
+      if (catRes.ok) {
+        const catData = await catRes.json();
+        setCategories(catData);
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast.error("Gagal mengambil data produk");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Filter Logic
   const filteredProducts = products.filter((prod) => {
     const matchSearch = prod.name
       .toLowerCase()
@@ -95,6 +135,7 @@ export default function ProductPage() {
   const endIndex = startIndex + itemsPerPage;
   const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
 
+  // Handlers
   const handleOpenModal = (prod: Product | null = null) => {
     if (prod) {
       setEditingProduct(prod);
@@ -112,7 +153,7 @@ export default function ProductPage() {
       setEditingProduct(null);
       setFormData({
         name: "",
-        category: initialCategories[0]?.name || "",
+        category: categories[0]?.name || "",
         price: 0,
         trackStock: true,
         stock: 0,
@@ -124,37 +165,55 @@ export default function ProductPage() {
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name || !formData.category) {
       toast.error("Nama dan Kategori wajib diisi");
       return;
     }
 
-    if (editingProduct) {
-      updateProduct({
-        ...editingProduct,
-        ...formData,
-        // Ensure image is preserved if not changed (though formData.image should handle it)
-        image: formData.image || editingProduct.image,
+    try {
+      const url = "/api/products";
+      const method = editingProduct ? "PUT" : "POST";
+      const body = editingProduct
+        ? { ...formData, id: editingProduct.id }
+        : formData;
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
-      toast.success("Produk berhasil diperbarui");
-    } else {
-      const newProd: Product = {
-        id: `prod_${Date.now()}`,
-        ...formData,
-        image: formData.image || "/placeholder.jpg",
-      };
-      addProduct(newProd);
-      toast.success("Produk baru berhasil ditambahkan");
+
+      if (!res.ok) throw new Error("Failed to save product");
+
+      toast.success(
+        editingProduct
+          ? "Produk berhasil diperbarui"
+          : "Produk baru berhasil ditambahkan",
+      );
+      setIsModalOpen(false);
+      fetchData(); // Refresh data
+    } catch (error) {
+      console.error("Save error:", error);
+      toast.error("Gagal menyimpan produk");
     }
-    setIsModalOpen(false);
   };
 
-  const handleDelete = () => {
-    if (deleteId) {
-      deleteProduct(deleteId);
+  const handleDelete = async () => {
+    if (!deleteId) return;
+
+    try {
+      const res = await fetch(`/api/products?id=${deleteId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+
       toast.success("Produk berhasil dihapus");
       setDeleteId(null);
+      fetchData();
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast.error("Gagal menghapus produk");
     }
   };
 
@@ -176,8 +235,6 @@ export default function ProductPage() {
       reader.readAsDataURL(file);
     }
   };
-
-  // function toggleVariant removed
 
   return (
     <div className="space-y-6">
@@ -217,7 +274,7 @@ export default function ProductPage() {
                 </SelectTrigger>
                 <SelectContent position="popper">
                   <SelectItem value="all">Semua Kategori</SelectItem>
-                  {initialCategories.map((cat) => (
+                  {categories.map((cat) => (
                     <SelectItem key={cat.id} value={cat.name}>
                       {cat.name}
                     </SelectItem>
@@ -228,7 +285,11 @@ export default function ProductPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {paginatedProducts.length === 0 ? (
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : paginatedProducts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
               <Package className="h-12 w-12 text-muted-foreground/50" />
               <p className="text-muted-foreground">
@@ -368,7 +429,6 @@ export default function ProductPage() {
                         />
                       </PaginationItem>
 
-                      {/* Simple logic for now: show current page */}
                       <PaginationItem>
                         <PaginationLink isActive>{currentPage}</PaginationLink>
                       </PaginationItem>
@@ -417,7 +477,7 @@ export default function ProductPage() {
                     <SelectValue placeholder="Pilih Kategori" />
                   </SelectTrigger>
                   <SelectContent position="popper">
-                    {initialCategories.map((cat) => (
+                    {categories.map((cat) => (
                       <SelectItem key={cat.id} value={cat.name}>
                         {cat.name}
                       </SelectItem>

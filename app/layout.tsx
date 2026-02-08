@@ -32,8 +32,6 @@ export const metadata: Metadata = {
 
 import { Toaster } from "@/components/ui/sonner";
 
-import { ProductProvider } from "./context/product-context";
-import { EmployeeProvider } from "./context/employee-context";
 import { BranchProvider } from "@/contexts/branch-context";
 import { TransactionProvider } from "./context/transaction-context";
 
@@ -48,14 +46,10 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <BranchProvider>
-          <EmployeeProvider>
-            <ProductProvider>
-              <TransactionProvider>
-                {children}
-                <Toaster />
-              </TransactionProvider>
-            </ProductProvider>
-          </EmployeeProvider>
+          <TransactionProvider>
+            {children}
+            <Toaster />
+          </TransactionProvider>
         </BranchProvider>
       </body>
     </html>

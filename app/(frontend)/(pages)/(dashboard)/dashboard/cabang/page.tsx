@@ -47,11 +47,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useBranch, Branch } from "@/contexts/branch-context";
-import { useEmployee } from "@/app/context/employee-context";
 
 export default function CabangPage() {
-  const { branches, addBranch, updateBranch, deleteBranch } = useBranch();
-  const { employees } = useEmployee();
+  const { branches, addBranch, updateBranch, deleteBranch, employees } =
+    useBranch();
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);

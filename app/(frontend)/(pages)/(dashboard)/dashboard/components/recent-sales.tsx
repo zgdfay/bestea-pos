@@ -24,26 +24,28 @@ const formatter = new Intl.NumberFormat("id-ID", {
 
 // Static data removed
 
-import { useTransactions } from "@/app/context/transaction-context";
+interface RecentSalesProps {
+  sales: {
+    id: string;
+    totalAmount: number;
+    paymentMethod: string;
+    items: { productName: string }[];
+  }[];
+}
 
-export function RecentSales() {
-  const { transactions } = useTransactions();
-
-  // Get latest 5 completed transactions
-  const recentSales = transactions
-    .filter((t) => t.status === "completed")
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 5)
-    .map((t) => ({
-      order: t.id,
-      name:
-        t.items
-          .map((i) => i.productName)
-          .join(", ")
-          .slice(0, 30) + (t.items.length > 1 ? "..." : ""),
-      method: t.paymentMethod,
-      amount: t.totalAmount,
-    }));
+export function RecentSales({ sales }: RecentSalesProps) {
+  // Map API data to component display format
+  const recentSales = sales.map((t) => ({
+    order: `#${t.id.slice(0, 8).toUpperCase()}`,
+    getFullId: t.id,
+    name:
+      t.items
+        .map((i) => i.productName)
+        .join(", ")
+        .slice(0, 30) + (t.items.length > 1 ? "..." : ""),
+    method: t.paymentMethod,
+    amount: t.totalAmount,
+  }));
 
   return (
     <Card className="col-span-4 lg:col-span-3 flex flex-col max-h-[440px]">

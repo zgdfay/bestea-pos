@@ -1,21 +1,39 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import {
-  Product,
-  ProductVariant,
-} from "../../(dashboard)/dashboard/produk/data/mock-data-products";
-import { useProducts } from "@/app/context/product-context";
+import { useState, useEffect, useCallback } from "react";
 import {
   useTransactions,
   Transaction as ContextTransaction,
 } from "@/app/context/transaction-context";
-// Define CartItem locally since it's POS specific for now or we could move it to a shared type file.
-// For simplicity, let's redefine it here compatible with the new Product structure.
+
+// Local types or shared types
+export interface ProductVariant {
+  name: string;
+  price: number;
+}
+export interface Product {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  trackStock: boolean;
+  stock: number;
+  image: string;
+  status: "active" | "inactive";
+  variants?: ProductVariant[];
+}
+// CartItem definition
 export interface CartItem extends Omit<Product, "variants"> {
   quantity: number;
   variant: ProductVariant;
 }
+
+interface Category {
+  id: string;
+  name: string;
+  productCount: number;
+}
+
 import { CategorySelector } from "./components/category-selector";
 import { ProductGrid } from "./components/product-grid";
 import { CartSection } from "./components/cart-section";
@@ -35,6 +53,7 @@ import {
   WalletCards,
   Settings,
   Store,
+  User,
 } from "lucide-react";
 import { PrinterProvider, usePrinter } from "./context/printer-context";
 import { TransactionHistory } from "./components/transaction-history";
@@ -44,10 +63,9 @@ import { ShiftModal } from "./components/shift-modal";
 import { CashOutModal } from "./components/cash-out-modal";
 import { SizeSelectionModal } from "./components/size-selection-modal";
 import { PrinterSettingsModal } from "./components/printer-settings-modal";
-import { useEmployee } from "@/app/context/employee-context";
 import { useBranch } from "@/contexts/branch-context";
-import { User, LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import {
   AlertDialog,
@@ -66,13 +84,6 @@ function ConnectPrinterButton() {
   const [showDisconnectAlert, setShowDisconnectAlert] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Import PrinterSettingsModal dynamically or at top level? Top level is better.
-  // But wait, I need to add the import statement effectively.
-  // Since I can't add imports with this tool easily without multi-replace or careful range,
-  // I will use multi-replace on the file to add import and update component.
-  // Wait, I am using replace_file_content on a function. I should use multi_replace to handle import too.
-
-  // Implementation details for this function:
   const handlePrinterClick = () => {
     if (isConnected) {
       setShowDisconnectAlert(true);
@@ -163,14 +174,18 @@ function ConnectPrinterButton() {
 
 function KasirContent() {
   const router = useRouter();
-  const { currentBranch, logout, isCashier } = useBranch();
+  const { currentBranch, logout, activeEmployee } = useBranch();
 
   const handleLogout = () => {
     logout();
-    router.push("/login");
+    router.push("/login"); // Assumes login route exists
   };
 
-  const { products, categories: activeCategories, reduceStock } = useProducts();
+  // State
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [isDataLoading, setIsDataLoading] = useState(true);
+
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -179,29 +194,23 @@ function KasirContent() {
   // Printer Context
   const { printReceipt, isConnected } = usePrinter();
 
-  // Employee Context
-  const { activeEmployee } = useEmployee();
-
   // Product Selection State
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isSizeModalOpen, setIsSizeModalOpen] = useState(false);
 
   // Shift State
-  const { isShiftOpen, shiftData, addTransaction, addExpense, isLoading } =
-    useShift();
+  const {
+    isShiftOpen,
+    shiftData,
+    addTransaction: addTransactionToShift,
+    addExpense,
+    isLoading: isShiftLoading,
+  } = useShift();
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [isCashOutOpen, setIsCashOutOpen] = useState(false);
   const [shiftModalMode, setShiftModalMode] = useState<"open" | "close">(
     "open",
   );
-
-  // Force Open Shift logic removed as per request
-  // useEffect(() => {
-  //   if (!isLoading && !isShiftOpen) {
-  //     setShiftModalMode("open");
-  //     setIsShiftModalOpen(true);
-  //   }
-  // }, [isShiftOpen, isLoading]);
 
   const handleOpenShiftModal = () => {
     setShiftModalMode("close"); // Trigger close shift manually
@@ -209,7 +218,34 @@ function KasirContent() {
   };
 
   // Transaction Context for Syncing
-  const { addExpense: addTransactionExpense } = useTransactions();
+  const {
+    addExpense: addTransactionExpense,
+    addTransaction: addTransactionToDB,
+  } = useTransactions();
+
+  // Fetch Data
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsDataLoading(true);
+      try {
+        const [prodRes, catRes] = await Promise.all([
+          fetch("/api/products"),
+          fetch("/api/categories"),
+        ]);
+        if (prodRes.ok) {
+          const pData = await prodRes.json();
+          setProducts(pData.filter((p: Product) => p.status === "active"));
+        }
+        if (catRes.ok) setCategories(await catRes.json());
+      } catch (error) {
+        console.error("Failed to fetch products", error);
+        toast.error("Gagal memuat produk");
+      } finally {
+        setIsDataLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
   const handleConfirmCashOut = (amount: number, description: string) => {
     // 1. Add to Shift Data (Local Cashier State)
@@ -229,8 +265,6 @@ function KasirContent() {
   const handleAddToCart = (product: Product) => {
     // Check if product has variants
     if (product.variants && product.variants.length > 0) {
-      // If only 1 variant, might still want to select it or auto-select.
-      // logic: if multiple variants, show modal.
       if (product.variants.length === 1) {
         handleConfirmAddToCart(product, product.variants[0]);
       } else {
@@ -239,7 +273,6 @@ function KasirContent() {
       }
     } else {
       // No variants (single price product)
-      // Construct a dummy "Standard" variant for consistency in CartItem
       const defaultVariant: ProductVariant = {
         name: "Standard",
         price: product.price,
@@ -265,7 +298,6 @@ function KasirContent() {
         );
       }
 
-      // Destructure to remove variants array from cart item (avoid data duplication/types issue)
       const { variants, ...productWithoutVariants } = product;
       return [
         ...prev,
@@ -285,7 +317,6 @@ function KasirContent() {
   ) => {
     setCartItems((prev) =>
       prev.map((item) => {
-        // If variantName is provided, match by it. Otherwise fallback to ID only (legacy safe).
         const isMatch =
           item.id === id && (!variantName || item.variant.name === variantName);
 
@@ -320,67 +351,87 @@ function KasirContent() {
     paymentMethod: "cash" | "qris",
     amountPaid: number,
   ) => {
-    console.log("Payment Confirmed:", {
-      method: paymentMethod,
-      amount: amountPaid,
-      items: cartItems,
-      total: totalPrice,
-    });
+    // Prepare Items for DB
+    const transactionItems = cartItems.map((item) => ({
+      productId: item.id,
+      productName: item.name,
+      variant: item.variant.name,
+      quantity: item.quantity,
+      price: item.variant.price,
+      subtotal: item.variant.price * item.quantity,
+    }));
 
-    // Construct Transaction Object
-    const now = new Date();
-    const transactionId = `TRX-${String(
-      (shiftData?.transactions?.length || 0) + 1,
-    ).padStart(6, "0")}`;
-    const transactionTime = now.toLocaleTimeString("id-ID", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    const transactionDate = now.toLocaleDateString("id-ID", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-
-    const newTransaction = {
-      id: transactionId,
-      date: transactionDate,
-      time: transactionTime,
-      total: totalPrice,
-      paymentMethod: paymentMethod,
-      status: "completed" as const,
-      items: cartItems.map((item) => ({
-        productId: item.id,
-        name: item.name,
-        price: item.variant.price,
-        quantity: item.quantity,
-        variant: item.variant.name,
-      })),
-      // Employee attribution
-      employeeId: activeEmployee?.id,
-      employeeName: activeEmployee?.name,
-      // Branch and cashier data for receipt
+    // Construct Transaction Object Data
+    const transactionData = {
+      branchId: currentBranch?.id || "unknown",
       branchName: currentBranch?.name || "Cabang Bestea",
+      cashierId: activeEmployee?.id,
       cashierName: activeEmployee?.name || "Kasir",
+      customerName: "Pelanggan",
+      totalAmount: totalPrice,
+      paymentMethod: paymentMethod,
+      amountPaid: amountPaid,
+      changeAmount: amountPaid - totalPrice,
+      status: "completed" as const,
+      items: transactionItems,
     };
 
-    // Log transaction to Shift System
-    addTransaction(newTransaction);
+    try {
+      // 1. Save to Supabase (Database) via TransactionContext (which now calls API)
+      const savedTransaction = await addTransactionToDB(
+        transactionData,
+        transactionItems,
+      );
 
-    // Reduce stock for each product in cart
-    for (const item of cartItems) {
-      await reduceStock(item.id, item.quantity);
-    }
+      if (savedTransaction) {
+        // 2. Add to Local Shift Data
+        const shiftTransaction = {
+          id: savedTransaction.id,
+          date: new Date(savedTransaction.date).toLocaleDateString("id-ID", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          }),
+          paymentMethod: savedTransaction.paymentMethod as "cash" | "qris",
+          total: savedTransaction.totalAmount,
+          time: new Date(savedTransaction.date).toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          status: (savedTransaction.status === "void"
+            ? "cancelled"
+            : "completed") as "completed" | "pending" | "cancelled",
+          items: savedTransaction.items.map((item) => ({
+            productId: item.productId,
+            name: item.productName,
+            price: item.price,
+            quantity: item.quantity,
+            variant: item.variant || "",
+          })),
+          employeeId: savedTransaction.cashierId,
+          employeeName: savedTransaction.cashierName,
+          branchName: savedTransaction.branchName,
+          cashierName: savedTransaction.cashierName,
+        };
 
-    // Auto Print Receipt if Connected
-    if (isConnected) {
-      await printReceipt(newTransaction);
+        addTransactionToShift(shiftTransaction);
+
+        // 3. Stock Reduction is now handled by API
+
+        // 4. Print Receipt
+        if (isConnected) {
+          await printReceipt(shiftTransaction);
+        }
+      }
+    } catch (error) {
+      console.error("Transaction failed:", error);
+      toast.error("Transaksi Gagal");
     }
   };
 
   const handleClosePaymentModal = () => {
     setIsPaymentModalOpen(false);
-    setCartItems([]); // Clear cart on success/close if confirmed
+    setCartItems([]);
   };
 
   const totalItems = cartItems.reduce((acc, item) => acc + item.quantity, 0);
@@ -400,7 +451,7 @@ function KasirContent() {
     (shiftData?.transactions?.length || 0) + 1,
   ).padStart(4, "0")}`;
 
-  if (isLoading) {
+  if (isShiftLoading || isDataLoading) {
     return (
       <div className="flex items-center justify-center h-full bg-slate-50">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500" />
@@ -408,10 +459,16 @@ function KasirContent() {
     );
   }
 
+  // Calculate generic categories if none provided
+  const displayCategories =
+    categories.length > 0
+      ? categories
+      : [{ id: "all", name: "Semua Kategori", productCount: 0 }];
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50 rounded-lg border border-slate-200 relative">
       {/* Shift Closed Overlay */}
-      {!isShiftOpen && !isLoading && (
+      {!isShiftOpen && !isShiftLoading && (
         <div className="absolute inset-0 z-50 bg-white/60 backdrop-blur-sm flex flex-col items-center justify-center text-center p-4">
           <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 max-w-md w-full">
             <div className="bg-orange-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -507,7 +564,7 @@ function KasirContent() {
             </header>
 
             <CategorySelector
-              categories={activeCategories}
+              categories={displayCategories}
               selectedCategory={selectedCategory}
               onSelectCategory={setSelectedCategory}
             />

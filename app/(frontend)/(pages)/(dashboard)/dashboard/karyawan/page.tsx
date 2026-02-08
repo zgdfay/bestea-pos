@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -27,7 +27,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Plus,
   Search,
   MoreHorizontal,
   UserPlus,
@@ -36,6 +35,7 @@ import {
   Building2,
   Key,
   RefreshCw,
+  Loader2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -52,7 +52,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -60,21 +59,50 @@ import { toast } from "sonner";
 import {
   Pagination,
   PaginationContent,
-  PaginationEllipsis,
   PaginationItem,
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { useEmployee } from "@/app/context/employee-context";
-import { useBranch } from "@/contexts/branch-context";
-import { Employee, statusConfig, roles } from "./data/mock-data";
+
+// Types
+interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  branch: string;
+  branchId?: string;
+  status: "active" | "inactive";
+  joinDate: string;
+  baseSalary: number;
+  hourlyRate: number;
+  pin: string;
+}
+
+interface Branch {
+  id: string;
+  name: string;
+  type: string;
+}
+
+const statusConfig = {
+  active: { label: "Aktif", className: "bg-green-100 text-green-700" },
+  inactive: { label: "Non-Aktif", className: "bg-red-100 text-red-700" },
+};
+
+const roles = [
+  { id: "kasir", name: "Kasir" },
+  { id: "admin_cabang", name: "Admin Cabang" },
+  { id: "super_admin", name: "Super Admin" },
+];
 
 export default function KaryawanPage() {
-  const { employees, addEmployee, updateEmployee, deleteEmployee, resetPin } =
-    useEmployee();
-  const { branches } = useBranch();
-  const cabangList = branches.filter((b) => b.type === "cabang");
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [branchFilter, setBranchFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -82,7 +110,8 @@ export default function KaryawanPage() {
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingEmployee, setEditingEmployee] = useState<any>(null);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState<{
@@ -90,7 +119,7 @@ export default function KaryawanPage() {
     email: string;
     phone: string;
     role: string;
-    branch: string;
+    branchId: string;
     status: "active" | "inactive";
     baseSalary: number;
     hourlyRate: number;
@@ -100,19 +129,48 @@ export default function KaryawanPage() {
     email: "",
     phone: "",
     role: "Kasir",
-    branch: cabangList[0]?.name || "",
+    branchId: "",
     status: "active",
     baseSalary: 1500000,
     hourlyRate: 15000,
-    pin: "", // PIN untuk kasir
+    pin: "",
   });
 
-  // Generate random 4-digit PIN
   const generatePin = () => {
     return String(Math.floor(1000 + Math.random() * 9000));
   };
 
-  const handleOpenModal = (emp: any = null) => {
+  // Fetch Data
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [empRes, branchRes] = await Promise.all([
+        fetch("/api/employees"),
+        fetch("/api/branches"),
+      ]);
+
+      if (empRes.ok) {
+        const empData = await empRes.json();
+        setEmployees(empData);
+      }
+      if (branchRes.ok) {
+        const branchData = await branchRes.json();
+        setBranches(branchData.filter((b: any) => b.type === "cabang"));
+      }
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast.error("Gagal mengambil data karyawan");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Handlers
+  const handleOpenModal = (emp: Employee | null = null) => {
     if (emp) {
       setEditingEmployee(emp);
       setFormData({
@@ -120,7 +178,7 @@ export default function KaryawanPage() {
         email: emp.email,
         phone: emp.phone,
         role: emp.role,
-        branch: emp.branch,
+        branchId: emp.branchId || "",
         status: emp.status,
         baseSalary: emp.baseSalary || 1500000,
         hourlyRate: emp.hourlyRate || 15000,
@@ -133,59 +191,90 @@ export default function KaryawanPage() {
         email: "",
         phone: "",
         role: "Kasir",
-        branch: cabangList[0]?.name || "",
+        branchId: branches[0]?.id || "",
         status: "active",
         baseSalary: 1500000,
         hourlyRate: 15000,
-        pin: generatePin(), // Auto-generate PIN for new employee
+        pin: generatePin(),
       });
     }
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name || !formData.email) {
       toast.error("Harap isi nama dan email");
       return;
     }
 
-    if (editingEmployee) {
-      const updatedEmp: Employee = {
-        ...editingEmployee,
-        ...formData,
-      };
-      updateEmployee(updatedEmp);
-      toast.success("Data karyawan diperbarui");
-    } else {
-      const newEmp: Employee = {
-        id: `EMP${String(employees.length + 1).padStart(3, "0")}`,
-        ...formData,
-        joinDate: new Date().toLocaleDateString("id-ID", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        }),
-      };
-      addEmployee(newEmp);
-      toast.success("Karyawan baru ditambahkan");
+    try {
+      const url = "/api/employees";
+      const method = editingEmployee ? "PUT" : "POST";
+      const body = editingEmployee
+        ? { ...formData, id: editingEmployee.id }
+        : formData;
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) throw new Error("Failed to save employee");
+
+      toast.success(
+        editingEmployee
+          ? "Data karyawan diperbarui"
+          : "Karyawan baru ditambahkan",
+      );
+      setIsModalOpen(false);
+      fetchData();
+    } catch (error) {
+      console.error("Save error:", error);
+      toast.error("Gagal menyimpan data karyawan");
     }
-    setIsModalOpen(false);
   };
 
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const handleDelete = async () => {
+    if (!deleteId) return;
 
-  const confirmDelete = (id: string) => {
-    setDeleteId(id);
-  };
+    try {
+      const res = await fetch(`/api/employees?id=${deleteId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete");
 
-  const handleDelete = () => {
-    if (deleteId) {
-      deleteEmployee(deleteId);
-      toast.success("Karyawan dan Akun berhasil dihapus");
+      toast.success("Karyawan berhasil dihapus");
       setDeleteId(null);
+      fetchData();
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast.error("Gagal menghapus karyawan");
     }
   };
 
+  const handleResetPin = async (emp: Employee) => {
+    const newPin = generatePin();
+    // Optimistic update or dedicated API endpoint could be used.
+    // Here we reuse PUT logic but simpler just updating PIN
+    try {
+      const res = await fetch("/api/employees", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...emp, pin: newPin }),
+      });
+
+      if (!res.ok) throw new Error("Failed to reset PIN");
+
+      toast.success(`PIN baru untuk ${emp.name}: ${newPin}`);
+      fetchData();
+    } catch (error) {
+      console.error("Reset PIN error:", error);
+      toast.error("Gagal reset PIN");
+    }
+  };
+
+  // Filtering
   const filteredEmployees = employees.filter((emp) => {
     const matchSearch =
       emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -243,7 +332,7 @@ export default function KaryawanPage() {
               </SelectTrigger>
               <SelectContent position="popper">
                 <SelectItem value="all">Semua Cabang</SelectItem>
-                {cabangList.map((branch) => (
+                {branches.map((branch) => (
                   <SelectItem key={branch.id} value={branch.name}>
                     {branch.name}
                   </SelectItem>
@@ -269,7 +358,15 @@ export default function KaryawanPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paginatedEmployees.length === 0 ? (
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="h-24 text-center">
+                    <div className="flex justify-center items-center">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : paginatedEmployees.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={7}
@@ -338,17 +435,17 @@ export default function KaryawanPage() {
                         variant="outline"
                         className={
                           statusConfig[emp.status as keyof typeof statusConfig]
-                            .className
+                            ?.className
                         }
                       >
                         {
                           statusConfig[emp.status as keyof typeof statusConfig]
-                            .label
+                            ?.label
                         }
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {emp.joinDate}
+                      {new Date(emp.joinDate).toLocaleDateString("id-ID")}
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
@@ -369,22 +466,14 @@ export default function KaryawanPage() {
                           >
                             Edit Data
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              const newPin = generatePin();
-                              resetPin(emp.id, newPin);
-                              toast.success(
-                                `PIN baru untuk ${emp.name}: ${newPin}`,
-                              );
-                            }}
-                          >
+                          <DropdownMenuItem onClick={() => handleResetPin(emp)}>
                             <RefreshCw className="h-4 w-4 mr-2" />
                             Reset PIN
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive"
-                            onClick={() => confirmDelete(emp.id)}
+                            onClick={() => setDeleteId(emp.id)}
                           >
                             Hapus Karyawan
                           </DropdownMenuItem>
@@ -417,7 +506,6 @@ export default function KaryawanPage() {
                   />
                 </PaginationItem>
 
-                {/* Simple logic for now: show current page */}
                 <PaginationItem>
                   <PaginationLink isActive>{currentPage}</PaginationLink>
                 </PaginationItem>
@@ -543,15 +631,17 @@ export default function KaryawanPage() {
               <div className="grid gap-2">
                 <Label htmlFor="branch">Penempatan Cabang</Label>
                 <Select
-                  value={formData.branch}
-                  onValueChange={(v) => setFormData({ ...formData, branch: v })}
+                  value={formData.branchId}
+                  onValueChange={(v) =>
+                    setFormData({ ...formData, branchId: v })
+                  }
                 >
                   <SelectTrigger id="branch" className="w-full">
-                    <SelectValue />
+                    <SelectValue placeholder="Pilih Cabang" />
                   </SelectTrigger>
                   <SelectContent position="popper">
-                    {cabangList.map((branch) => (
-                      <SelectItem key={branch.id} value={branch.name}>
+                    {branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>
                         {branch.name}
                       </SelectItem>
                     ))}
@@ -634,7 +724,6 @@ export default function KaryawanPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
       <Dialog
         open={!!deleteId}
         onOpenChange={(open) => !open && setDeleteId(null)}

@@ -65,10 +65,19 @@ function StatsCard({
   );
 }
 
-export function StatsCards() {
-  const { getDailyStats } = useTransactions();
-  const stats = getDailyStats();
+interface StatsCardsProps {
+  stats: {
+    revenue: number;
+    revenueGrowth: number;
+    transactionCount: number; // API returns transactionCount
+    transactionGrowth: number;
+    activeBranches: number;
+    productsSold: number;
+    productGrowth: number;
+  };
+}
 
+export function StatsCards({ stats }: StatsCardsProps) {
   return (
     <div className="grid gap-3 md:gap-4 grid-cols-2 lg:grid-cols-4">
       <StatsCard
@@ -79,7 +88,7 @@ export function StatsCards() {
       />
       <StatsCard
         title="Total Transaksi"
-        value={stats.transactions.toString()}
+        value={stats.transactionCount.toString()}
         change={stats.transactionGrowth}
         icon={<ShoppingBag className="h-4 w-4 text-muted-foreground" />}
       />

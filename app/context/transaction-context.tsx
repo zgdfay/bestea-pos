@@ -229,54 +229,59 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
       items: TransactionItem[],
     ) => {
       try {
-        // Insert transaction
-        const { data: newTrx, error: trxError } = await supabase
-          .from("transactions")
-          .insert({
-            branch_id: trxData.branchId,
-            cashier_id: trxData.cashierId,
-            cashier_name: trxData.cashierName,
-            customer_name: trxData.customerName,
-            total_amount: trxData.totalAmount,
-            payment_method: trxData.paymentMethod,
-            amount_paid: trxData.amountPaid,
-            change_amount: trxData.changeAmount,
-            status: trxData.status || "completed",
-          })
-          .select()
-          .single();
+        console.log(
+          "[TransactionContext] Adding transaction via API:",
+          trxData,
+        );
 
-        if (trxError) throw trxError;
+        // Call Backend API
+        const response = await fetch("/api/transactions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            transaction: {
+              branchId: trxData.branchId,
+              cashierId: trxData.cashierId,
+              cashierName: trxData.cashierName,
+              customerName: trxData.customerName,
+              totalAmount: trxData.totalAmount,
+              paymentMethod: trxData.paymentMethod,
+              amountPaid: trxData.amountPaid,
+              changeAmount: trxData.changeAmount,
+              status: trxData.status || "completed",
+            },
+            items: items.map((item) => ({
+              productId: item.productId,
+              productName: item.productName,
+              variant: item.variant,
+              quantity: item.quantity,
+              price: item.price,
+              subtotal: item.subtotal,
+            })),
+          }),
+        });
 
-        // Insert transaction items
-        if (newTrx && items.length > 0) {
-          const itemsToInsert = items.map((item) => ({
-            transaction_id: newTrx.id,
-            product_id: item.productId,
-            product_name: item.productName,
-            variant_name: item.variant,
-            quantity: item.quantity,
-            price: item.price,
-            subtotal: item.subtotal,
-          }));
-
-          await supabase.from("transaction_items").insert(itemsToInsert);
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error("[TransactionContext] API Error:", errorData);
+          throw new Error(errorData.error || "Failed to save transaction");
         }
 
-        await fetchTransactions();
+        const savedTransaction = await response.json();
+        console.log("[TransactionContext] API Success:", savedTransaction);
 
-        return {
-          id: newTrx.id,
-          date: newTrx.created_at,
-          ...trxData,
-          items,
-        } as Transaction;
+        // Optimistic update or wait for realtime (realtime subscription handles this usually)
+        // fetchTransactions();
+
+        return savedTransaction;
       } catch (error) {
         console.error("Error adding transaction:", error);
         return null;
       }
     },
-    [fetchTransactions],
+    [],
   );
 
   const voidTransaction = useCallback(

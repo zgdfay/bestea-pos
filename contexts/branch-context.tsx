@@ -20,6 +20,15 @@ export interface Branch {
   phone?: string;
 }
 
+export interface Employee {
+  id: string;
+  name: string;
+  role: string;
+  branch: string;
+  email?: string;
+  pin?: string;
+}
+
 interface BranchContextType {
   currentBranch: Branch | null;
   branches: Branch[];
@@ -42,12 +51,27 @@ interface BranchContextType {
     role?: RoleType;
     branch?: Branch;
     error?: string;
-    employee?: { id: string; name: string; role: string; branch: string };
+    employee?: Employee;
   }>;
   logout: () => void;
+  activeEmployee: Employee | null;
+  setActiveEmployee: (employee: Employee | null) => void;
   isSuperAdmin: boolean;
   isBranchAdmin: boolean;
   isCashier: boolean;
+  // Attendance
+  checkAttendanceStatus: (employeeId: string) => Promise<any>;
+  clockIn: (
+    employeeId: string,
+    branchId: string,
+    shift?: string,
+    status?: string,
+  ) => Promise<any>;
+  clockOut: (employeeId: string) => Promise<any>;
+  // Employee Management
+  employees: Employee[];
+  refreshEmployees: () => Promise<void>;
+  verifyPin: (pin: string) => Promise<Employee | null>;
 }
 
 const AUTH_KEY = "bestea-auth-session";
@@ -58,17 +82,29 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
   const [branches, setBranches] = React.useState<Branch[]>([]);
   const [currentBranch, setCurrentBranch] = React.useState<Branch | null>(null);
   const [userRole, setUserRole] = React.useState<RoleType>("guest");
+  const [activeEmployee, setActiveEmployee] = React.useState<Employee | null>(
+    null,
+  );
   const [isLoading, setIsLoading] = React.useState(true);
 
-  // Fetch branches from Supabase
+  React.useEffect(() => {
+    const storedEmp = localStorage.getItem("bestea-active-employee");
+    if (storedEmp) {
+      try {
+        setActiveEmployee(JSON.parse(storedEmp));
+      } catch (e) {
+        console.error("Failed to parse active employee", e);
+      }
+    }
+  }, []);
+
+  // Fetch branches from API
   const fetchBranches = React.useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("branches")
-        .select("*")
-        .order("name");
+      const response = await fetch("/api/branches");
+      if (!response.ok) throw new Error("Failed to fetch branches");
 
-      if (error) throw error;
+      const data = await response.json();
 
       const formattedBranches: Branch[] = (data || []).map((b: DBBranch) => ({
         id: b.id,
@@ -87,89 +123,23 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Load initial data
-  React.useEffect(() => {
-    const init = async () => {
-      setIsLoading(true);
+  // ... (useEffect for init and realtime - keeping realtime via Supabase client is fine for listening,
+  // but initial fetch is now API. Realtime subscription actually doesn't need API, it uses websocket directly to Supabase)
 
-      // Fetch branches from Supabase
-      const loadedBranches = await fetchBranches();
-
-      // Restore session from localStorage
-      const savedSession = localStorage.getItem(AUTH_KEY);
-      if (savedSession) {
-        try {
-          const session = JSON.parse(savedSession);
-          setUserRole(session.role);
-          if (session.branchId && loadedBranches.length > 0) {
-            const branch = loadedBranches.find(
-              (b) => b.id === session.branchId,
-            );
-            if (branch) {
-              setCurrentBranch(branch);
-            }
-          }
-        } catch (e) {
-          console.error("Failed to parse auth session", e);
-        }
-      }
-
-      setIsLoading(false);
-    };
-
-    init();
-  }, [fetchBranches]);
-
-  // Save auth session to localStorage
-  React.useEffect(() => {
-    if (!isLoading && currentBranch) {
-      const session = {
-        role: userRole,
-        branchId: currentBranch.id,
-      };
-      localStorage.setItem(AUTH_KEY, JSON.stringify(session));
-
-      // Sync with kasir branch key
-      if (currentBranch.type === "cabang") {
-        localStorage.setItem(
-          "bestea-kasir-branch",
-          JSON.stringify(currentBranch),
-        );
-      }
-    }
-  }, [userRole, currentBranch, isLoading]);
-
-  // Subscribe to realtime changes
-  React.useEffect(() => {
-    const channel = supabase
-      .channel("branches-changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "branches" },
-        () => {
-          fetchBranches();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchBranches]);
+  // ...
 
   const addBranch = React.useCallback(
     async (branchData: Omit<Branch, "id">) => {
-      const { error } = await supabase.from("branches").insert({
-        name: branchData.name,
-        type: branchData.type,
-        email: branchData.email,
-        address: branchData.address,
-        phone: branchData.phone,
+      const response = await fetch("/api/branches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(branchData),
       });
 
-      if (error) {
+      if (!response.ok) {
+        const error = await response.json();
         console.error("Error adding branch:", error);
-        throw error;
+        throw new Error(error.error || "Failed to add branch");
       }
 
       await fetchBranches();
@@ -179,20 +149,16 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
 
   const updateBranch = React.useCallback(
     async (updatedBranch: Branch) => {
-      const { error } = await supabase
-        .from("branches")
-        .update({
-          name: updatedBranch.name,
-          type: updatedBranch.type,
-          email: updatedBranch.email,
-          address: updatedBranch.address,
-          phone: updatedBranch.phone,
-        })
-        .eq("id", updatedBranch.id);
+      const response = await fetch("/api/branches", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedBranch),
+      });
 
-      if (error) {
+      if (!response.ok) {
+        const error = await response.json();
         console.error("Error updating branch:", error);
-        throw error;
+        throw new Error(error.error || "Failed to update branch");
       }
 
       await fetchBranches();
@@ -202,11 +168,14 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
 
   const deleteBranch = React.useCallback(
     async (id: string) => {
-      const { error } = await supabase.from("branches").delete().eq("id", id);
+      const response = await fetch(`/api/branches?id=${id}`, {
+        method: "DELETE",
+      });
 
-      if (error) {
+      if (!response.ok) {
+        const error = await response.json();
         console.error("Error deleting branch:", error);
-        throw error;
+        throw new Error(error.error || "Failed to delete branch");
       }
 
       await fetchBranches();
@@ -222,23 +191,31 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
   const login = React.useCallback(
     async (email: string, pass: string) => {
       try {
-        console.log("[Login] Attempting login for:", email);
+        console.log("[Login] Attempting login via API for:", email);
 
-        // 1. Check for Admin (super_admin role in employees table)
-        const { data: adminData, error: adminError } = await supabase
-          .from("employees")
-          .select("*, branches(*)")
-          .eq("email", email)
-          .eq("role", "super_admin")
-          .eq("status", "active")
-          .maybeSingle();
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password: pass }),
+        });
 
-        console.log("[Login] Admin query result:", { adminData, adminError });
+        const result = await response.json();
 
-        if (adminData && adminData.pin === pass) {
-          // Get branch from join or find in local state
-          const branchData = adminData.branches as DBBranch | null;
-          const branch: Branch = branchData
+        if (!response.ok) {
+          return { success: false, error: result.error || "Gagal login" };
+        }
+
+        const { role, employee, branches: employeeBranches } = result;
+
+        console.log("[Login] API Success:", { role, employee });
+
+        // Logic to determine branch
+        let branch: Branch | null = null;
+
+        if (role === "super_admin") {
+          // For super_admin, try to use assigned branch or fallback to first available
+          const branchData = employeeBranches as DBBranch | null;
+          branch = branchData
             ? {
                 id: branchData.id,
                 name: branchData.name,
@@ -248,51 +225,10 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
                 phone: branchData.phone,
               }
             : branches.find((b) => b.type === "admin") || branches[0];
-
-          if (branch) {
-            setUserRole("super_admin");
-            setCurrentBranch(branch);
-
-            localStorage.setItem(
-              "bestea-active-employee",
-              JSON.stringify({
-                id: adminData.id,
-                name: adminData.name,
-                role: adminData.role,
-              }),
-            );
-
-            return {
-              success: true,
-              role: "super_admin" as RoleType,
-              branch: branch,
-              employee: {
-                id: adminData.id,
-                name: adminData.name,
-                role: adminData.role,
-                branch: branch.name,
-              },
-            };
-          }
-        }
-
-        // 2. Check for Cashier/Employee (email + PIN)
-        const { data: employeeData, error: empError } = await supabase
-          .from("employees")
-          .select("*, branches(*)")
-          .eq("email", email)
-          .eq("pin", pass)
-          .eq("status", "active")
-          .maybeSingle();
-
-        console.log("[Login] Employee query result:", {
-          employeeData,
-          empError,
-        });
-
-        if (employeeData) {
-          const branchData = employeeData.branches as DBBranch | null;
-          const branch: Branch | null = branchData
+        } else {
+          // For others, use assigned branch or find by ID
+          const branchData = employeeBranches as DBBranch | null;
+          branch = branchData
             ? {
                 id: branchData.id,
                 name: branchData.name,
@@ -301,40 +237,46 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
                 address: branchData.address,
                 phone: branchData.phone,
               }
-            : branches.find((b) => b.id === employeeData.branch_id) || null;
-
-          if (branch) {
-            const role =
-              employeeData.role === "branch_admin" ? "branch_admin" : "cashier";
-            setUserRole(role as RoleType);
-            setCurrentBranch(branch);
-
-            localStorage.setItem(
-              "bestea-active-employee",
-              JSON.stringify({
-                id: employeeData.id,
-                name: employeeData.name,
-                role: employeeData.role,
-              }),
-            );
-
-            return {
-              success: true,
-              role: role as RoleType,
-              branch: branch,
-              employee: {
-                id: employeeData.id,
-                name: employeeData.name,
-                role: employeeData.role,
-                branch: branch.name,
-              },
-            };
-          } else {
-            return { success: false, error: "Cabang karyawan tidak ditemukan" };
-          }
+            : branches.find((b) => b.id === employee.branch_id) || null;
         }
 
-        return { success: false, error: "Email atau PIN tidak ditemukan" };
+        if (branch) {
+          setUserRole(role as RoleType);
+          setCurrentBranch(branch);
+
+          const empData = {
+            id: employee.id,
+            name: employee.name,
+            role: employee.role,
+            branch: branch.name,
+            email: employee.email,
+          };
+          setActiveEmployee(empData);
+
+          localStorage.setItem(
+            "bestea-active-employee",
+            JSON.stringify(empData),
+          );
+
+          // Save session for AuthGuard
+          localStorage.setItem(
+            AUTH_KEY,
+            JSON.stringify({
+              role,
+              branchId: branch.id,
+              employeeId: employee.id,
+            }),
+          );
+
+          return {
+            success: true,
+            role: role as RoleType,
+            branch: branch,
+            employee: empData,
+          };
+        } else {
+          return { success: false, error: "Cabang karyawan tidak ditemukan" };
+        }
       } catch (error) {
         console.error("[Login] Error:", error);
         return { success: false, error: "Terjadi kesalahan saat login" };
@@ -343,9 +285,112 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
     [branches],
   );
 
+  const checkAttendanceStatus = React.useCallback(
+    async (employeeId: string) => {
+      try {
+        const res = await fetch(
+          `/api/attendance?checkStatus=true&employeeId=${employeeId}`,
+        );
+        if (res.ok) {
+          const data = await res.json();
+          return data; // Returns record if clocked in, null if not
+        }
+        return null;
+      } catch (error) {
+        console.error("Error checking attendance:", error);
+        return null;
+      }
+    },
+    [],
+  );
+
+  const clockIn = React.useCallback(
+    async (
+      employeeId: string,
+      branchId: string,
+      shift: string = "Pagi",
+      status: string = "Hadir",
+    ) => {
+      try {
+        const res = await fetch("/api/attendance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            employeeId,
+            branchId,
+            shift,
+            status, // Can be "Hadir" or "Terlambat"
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to clock in");
+        return data;
+      } catch (error) {
+        throw error;
+      }
+    },
+    [],
+  );
+
+  const clockOut = React.useCallback(async (employeeId: string) => {
+    try {
+      const res = await fetch("/api/attendance", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clock_out", employeeId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to clock out");
+      return data;
+    } catch (error) {
+      throw error;
+    }
+  }, []);
+
+  // Employee Management
+  const [employees, setEmployees] = React.useState<Employee[]>([]);
+
+  const fetchEmployees = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/employees");
+      if (res.ok) {
+        const data = await res.json();
+        setEmployees(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch employees", e);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchEmployees();
+  }, [fetchEmployees]);
+
+  const verifyPin = React.useCallback(
+    async (pin: string): Promise<Employee | null> => {
+      let currentEmps = employees;
+      if (currentEmps.length === 0) {
+        try {
+          const res = await fetch("/api/employees");
+          if (res.ok) {
+            const data = await res.json();
+            currentEmps = data;
+            setEmployees(data);
+          }
+        } catch (e) {
+          console.error("Verify PIN fetch error", e);
+        }
+      }
+      const employee = currentEmps.find((e: any) => e.pin === pin);
+      return employee || null;
+    },
+    [employees],
+  );
+
   const logout = React.useCallback(() => {
     setUserRole("guest");
     setCurrentBranch(null);
+    setActiveEmployee(null);
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem("bestea-kasir-branch");
     localStorage.removeItem("bestea-active-employee");
@@ -370,12 +415,21 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
       isSuperAdmin: userRole === "super_admin",
       isBranchAdmin: userRole === "branch_admin",
       isCashier: userRole === "cashier",
+      activeEmployee,
+      setActiveEmployee,
+      checkAttendanceStatus,
+      clockIn,
+      clockOut,
+      employees,
+      refreshEmployees: fetchEmployees,
+      verifyPin,
     }),
     [
       currentBranch,
       branches,
       isLoading,
       userRole,
+      activeEmployee,
       addBranch,
       updateBranch,
       deleteBranch,
@@ -383,6 +437,12 @@ export function BranchProvider({ children }: { children: React.ReactNode }) {
       fetchBranches,
       login,
       logout,
+      checkAttendanceStatus,
+      clockIn,
+      clockOut,
+      employees,
+      fetchEmployees,
+      verifyPin,
     ],
   );
 
